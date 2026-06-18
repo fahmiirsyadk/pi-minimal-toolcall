@@ -1,52 +1,83 @@
 # @whitespace/pi-minimal-toolcall
 
-Minimal tool call rendering for Pi: one row per group of consecutive same-tool calls, paths relativized, no background box, calm indicator, collapsed thinking. Press `ctrl+o` to expand a row inline and see the full output; press again to collapse.
+A calmer, more compact tool-call view for [Pi](https://github.com/earendil-works/pi-coding-agent). Replaces Pi's default per-call tool blocks with one quiet row per group of consecutive same-tool calls, relative paths, no background box, and collapsed thinking. Press `ctrl+o` to expand any row inline.
 
-## What it does
-
-Overrides Pi's built-in tools (`bash`, `read`, `edit`, `write`, `grep`, `find`, `ls`) with a minimal `renderShell: "self"` renderer that groups consecutive same-tool calls into a single row that updates in place. Also folds in the calm UI defaults that used to live in `@whitespace/pi-quiet-ui`:
-
-- Working indicator suppressed
-- Tool output collapsed by default
-- Thinking hidden behind a single `thinking` label
-
-When the model calls the same tool multiple times in a row, the chat shows one row per group. The row updates its count and replaces its arg with the most recent one as each call lands, so the summary never grows beyond one line:
-
-```text
-  ⠋ Read 1 file (packages/foo.ts)                                       ctrl+o to expand
-  Edit 2 files (README.md) +5 -3                                        ctrl+o to expand
-  Write 1 file (scroll-preserve.md) +120                                ctrl+o to expand
-  shell 2 commands (cd ./packages/pi-minimal-toolcall && biome check --write .)   ctrl+o to expand
+```
+  ⠋ Read 3 files (src/grouping.ts)                              ctrl+o to expand
+  Edit 2 files (README.md) +5 -3                                ctrl+o to expand
+  Write 1 file (scroll-preserve.md) +120                        ctrl+o to expand
+  shell 2 commands (cd ./packages && biome check --write .)     ctrl+o to expand
+  thinking
 ```
 
-The count ticks up and the latest arg replaces the previous one. A different tool starts a new row and the previous row finalizes. The grouping is consecutive per tool name — a run of the same tool accumulates into one group, and a different tool cuts the group and starts a new one. So `read` → `read` → `read` shows one row that updates from `Read 1 file` to `Read 2 files` to `Read 3 files`, while `read` → `bash` → `read` shows three visible rows (`Read 2 files`, `Shell 1 command`, `Read 1 file`). The count reflects the consecutive run, not the whole session.
+## Features
 
-While a tool is running, the row shows an animated Braille spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) in the same `label + count + noun (arg)` shape as the end result, so the user sees the final structure immediately. When the result lands, the spinner is replaced by the group summary. For `edit` and `write`, the summary appends `+N -M` diff net lines beside the path — parsed from the unified patch (`edit`) or computed from the pre-execution file content captured in `renderCall` (`write`).
+### One row per group
 
-- No background box (uses `renderShell: "self"`); 2 spaces of left padding give the tool block visual separation from the chat message above it
-- Paths relativized against the live `cwd` at execution time (`/home/user/.../packages` → `packages`)
-- Bash commands with embedded cwd paths are also relativized
+When the model calls the same tool several times in a row, those calls collapse into a **single row that updates in place** instead of producing one block per call. The count ticks up and the latest argument replaces the previous one, so a 10-call `read` run is still just one line:
 
-### `ctrl+o` expands inline
+```
+  Read 10 files (src/batch-tools.ts)                            ctrl+o to expand
+```
 
-Pressing `ctrl+o` on a tool row expands it inline. The row grows from one line to a `Container` with the tool's full output. Press `ctrl+o` again to collapse. There is no modal: the expanded content sits in the chat, with rows above and below still visible. Multiple rows can be expanded at once.
+A different tool name cuts the group and starts a new one, so the count always reflects the current consecutive run, not the whole session. `read → read → read` renders as one row; `read → bash → read` renders as three.
 
-For a grouped row, the expanded view shows **every call in the group**, not just the most recent: each call gets its own header (`✓`/`✗` + arg + diff + duration) followed by its text output AND its diff patch (for `edit`, the full unified diff from `details.patch` is rendered with `+`/`-` coloring — the text alone is just "Successfully replaced N block(s)"). The combined body is tail-capped at 200 lines so a huge group does not flood the TUI; a `… N earlier lines not shown` footer notes the truncation. The footer says `N calls in this group` for groups of 2+. Per-call timing (e.g. `1.2s`, `500ms`) is shown in each entry's header, matching the SDK bash's `Took` format. If a new same-tool call lands while a row is expanded, the previous row's expanded view is preserved (rebuilt from the group's stored results) with an `earlier in group · see the latest below` footer instead of being silently collapsed.
+### Live spinner
 
-Note: expanding a tool row whose position is above the visible viewport triggers a full TUI re-render that clears terminal scrollback (`\x1b[3J`) and snaps the viewport to the bottom. To preserve scrollback in that case, install [`@whitespace/pi-preserve-scroll`](https://github.com/whitespace/pi-stuff/tree/main/packages/pi-preserve-scroll) alongside this package — it ships the TUI patch.
+While a call is in flight, the row shows an animated Braille spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) in the same `label + count + noun (arg)` shape as the final summary, so you see the final structure immediately. When the result lands, the spinner is replaced by the group summary.
+
+### Diff net lines
+
+For `edit` and `write`, the collapsed summary appends `+N -M` (added/removed line counts) beside the path — parsed from the unified patch for `edit`, or computed from the pre-execution file content for `write`.
+
+### Inline expand on `ctrl+o`
+
+Press `ctrl+o` on a row to expand it **inline in the chat** — no modal, no popup. The row grows into a container showing the full output, then press `ctrl+o` again to collapse. Multiple rows can be expanded at once.
+
+For a grouped row, the expanded view shows **every call in the group**, not just the most recent. Each call gets its own header:
+
+```
+  ✓ src/grouping.ts +3 -1  1.2s
+  ✓ src/tool-overrides.ts +8 -2  500ms
+```
+
+…followed by that call's text output and (for `edit`) the full unified diff with `+`/`-` coloring. The combined body is tail-capped at 200 lines so a huge group never floods the TUI; a `… N earlier lines not shown` footer notes any truncation.
+
+### Calm UI defaults
+
+On session start, the extension sets the resting state to calm:
+
+- **Working indicator suppressed** — no blinking "working…" line.
+- **Tool output collapsed by default** — one row per group; expand with `ctrl+o`.
+- **Thinking hidden** behind a single minimal `thinking` label (expand with `ctrl+t`).
+
+You can still expand anything on demand; only the resting state changes.
+
+### Relative paths
+
+Paths are relativized against the live `cwd` at execution time, so deep absolute paths render as short project-relative ones:
+
+```
+/home/user/code/pi-stuff/packages/pi-minimal-toolcall/src/grouping.ts
+        →  src/grouping.ts
+```
+
+Bash commands with embedded cwd paths are relativized too (`cd /home/user/code/.../packages` → `cd ./packages`), with token-boundary matching so a path that merely *contains* `cwd` as a substring (e.g. `/home/user-backup`) is left alone.
 
 ## Batch tools
 
-Registers four batch tools that the model can call instead of repeating the built-ins. Each renders as one row; `ctrl+o` expands inline to per-item `✓`/`✗` status + aggregated output:
+The extension also registers four batch tools the model can call instead of repeating the built-ins. Each batch call renders as one row; `ctrl+o` expands to per-item `✓`/`✗` status plus aggregated output.
 
-- `read_files({ paths, offset?, limit? })` — read 2+ files in one call
-- `edit_files({ edits: [{ path, oldText, newText }] })` — edit multiple files in one call
-- `grep_files({ queries: [{ pattern, path?, ... }] })` — multiple grep searches in one call
-- `find_files({ queries: [{ pattern, path?, limit? }] })` — multiple find searches in one call
+| Tool | Input | Replaces |
+| --- | --- | --- |
+| `read_files` | `{ paths, offset?, limit? }` | 2+ `read` calls |
+| `edit_files` | `{ edits: [{ path, oldText, newText }] }` | multiple `edit` calls |
+| `grep_files` | `{ queries: [{ pattern, path?, ... }] }` | multiple `grep` calls |
+| `find_files` | `{ queries: [{ pattern, path?, limit? }] }` | multiple `find` calls |
 
-Partial failures are surfaced per-item (`✗ path <error>`); the whole batch throws only if every item fails. Per-item execution uses the built-in tool definitions with the live `ctx.cwd`.
-
-Batch tools are not grouped further (they are already a single call). The chat shows one row per batch call. While a batch is in flight, the row shows a spinner in the same `label + count + noun` shape as the end result (`⠋ Read 3 files`, `⠋ Edit 2 files`, `⠋ Grep 3 searches`, `⠋ Find 1 search`) for the whole run — partial `onUpdate` ticks (one item finished inside the batch) keep the spinner alive and return a stable 0-line result Text instead of allocating per item. The collapsed summary (`Read 4 files`, `Edit 2 files`, `Grep 3 searches`, `Find 1 search`) replaces the spinner once the final result lands.
+- **Partial failures surface per item** (`✗ path <error>`); the batch throws only if *every* item fails.
+- **Live `cwd`** — each item runs the built-in tool definition with the current `ctx.cwd`.
+- **Spinner stays stable** while a batch is in flight: per-item `onUpdate` ticks keep the spinner alive without allocating a row per item. Once the final result lands, the spinner is replaced by the collapsed summary (`Read 4 files`, `Edit 2 files`, `Grep 3 searches`, `Find 1 search`).
 
 ## Install
 
@@ -54,22 +85,28 @@ Batch tools are not grouped further (they are already a single call). The chat s
 pi install npm:@whitespace/pi-minimal-toolcall
 ```
 
-One-off:
+One-off session:
 
 ```bash
 pi -e npm:@whitespace/pi-minimal-toolcall
 ```
 
-## Compatibility with other extensions
+Requires `@earendil-works/pi-coding-agent`, `pi-ai`, and `pi-tui` `^0.79.0` (declared as peer dependencies).
 
-- **Scroll preservation is opt-in.** This package does not ship the TUI patch; install [`@whitespace/pi-preserve-scroll`](https://github.com/whitespace/pi-stuff/tree/main/packages/pi-preserve-scroll) if you want terminal scrollback preserved when expanding a tool row above the visible viewport.
-- **Other extensions calling `setToolsExpanded`** are unaffected — this package only changes the renderer, not when `setToolsExpanded` fires.
-- **Other tools registered by other extensions** are not part of the grouping. They render with their own renderer. If a group mixes our tools and another extension's tool, the other tool's row shows its own rendering and breaks the group.
+## Compatibility
+
+- **Scroll preservation is opt-in.** Expanding a tool row that sits above the visible viewport triggers a full TUI re-render that clears terminal scrollback. To preserve scrollback in that case, install `@whitespace/pi-preserve-scroll` alongside this package — it ships the TUI patch.
+- **Other extensions calling `setToolsExpanded`** are unaffected — this package only changes the renderer, not *when* `setToolsExpanded` fires.
+- **Tools registered by other extensions** are not part of the grouping. They render with their own renderer; if a group mixes our tools and another extension's tool, the other tool's row breaks the group.
 
 ## Development
 
 ```bash
 bun install
-bun run check
-bun run pack:dry
+bun run check        # lint + typecheck + test
+bun run pack:dry     # preview the published tarball
 ```
+
+## License
+
+MIT
