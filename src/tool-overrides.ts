@@ -154,7 +154,7 @@ export function getOrCreateResultText(
 /** Get (or create and stash) a persistent expanded-view `Container` for
  * this tool call. Stored under a separate key from the collapsed `Text`
  * so toggling expanded ↔ collapsed does not reuse one as the other. */
-function getOrCreateResultContainer(
+export function getOrCreateResultContainer(
 	state: Record<string, unknown> | undefined,
 	factory: () => Container,
 ): Container {

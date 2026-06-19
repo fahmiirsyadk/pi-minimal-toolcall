@@ -1,9 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerBatchTools } from "./src/batch-tools.js";
 import {
+	debugLog,
+	disposeAll,
+	isDebugEnabled,
 	loadConfig,
 	type MinimalToolcallConfig,
+	registerDisposable,
 	runMinimalToolcallCommand,
+	setDebugEnabled,
 } from "./src/config/index.js";
 import { createGroupingSession, type GroupingSession } from "./src/grouping.js";
 import {
@@ -82,6 +87,19 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// TODO(plan-004): custom-tool decoration deferred. The SDK's
+	// `pi.getAllTools()` returns `ToolInfo` (name + description +
+	// parameters), not the full `ToolDefinition` (no `execute` /
+	// `label`). Without the full definition, we cannot wrap a
+	// non-builtin tool's `execute` for decoration. The decorator
+	// (`src/config/custom-tools.ts`) and its tests are kept for a
+	// future plan that adds an SDK surface to fetch the full
+	// definition, or for the `customToolOverrides` config to be
+	// re-purposed for a different capability (e.g. per-tool renderer
+	// hooks) once the SDK supports it. The `customToolOverrides`
+	// config field is loaded and normalized correctly (so users
+	// editing it now won't lose their config when the SDK catches up).
+
 	pi.on("session_start", async (_event, ctx) => {
 		// Load the config (fingerprint-cached; tolerates a missing file
 		// by returning the default). On parse error, fall back to the
@@ -89,6 +107,18 @@ export default function (pi: ExtensionAPI) {
 		const { config, error } = loadConfig();
 		const sessionId = ctx.sessionManager.getSessionId();
 		configs.set(sessionId, config);
+		setDebugEnabled(config.debug);
+		if (config.debug) {
+			debugLog("session", "session_start", {
+				sessionId,
+				showWorkingIndicator: config.showWorkingIndicator,
+				toolsExpandedByDefault: config.toolsExpandedByDefault,
+				groupingMode: config.groupingMode,
+				customToolsEnabled: Object.entries(config.customToolOverrides)
+					.filter(([, v]) => v.enabled)
+					.map(([k]) => k),
+			});
+		}
 
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingVisible(config.showWorkingIndicator);
@@ -106,6 +136,17 @@ export default function (pi: ExtensionAPI) {
 		);
 		setSessionSpinnerOptions(sessionId, config);
 		groupings.set(sessionId, grouping);
+		// Track per-session state in the disposable registry so a
+		// `/reload` cleans up after a `session_shutdown`. The grouping
+		// session and spinner options are scoped to the session; the
+		// next session_start re-creates them from the new config.
+		registerDisposable(`config:${sessionId}`, () => configs.delete(sessionId));
+		registerDisposable(`grouping:${sessionId}`, () =>
+			groupings.delete(sessionId),
+		);
+		registerDisposable(`spinner-options:${sessionId}`, () =>
+			clearSessionSpinnerOptions(sessionId),
+		);
 		registerOverrides(pi, grouping, config);
 		if (config.batchToolsEnabled) {
 			registerBatchTools(pi);
@@ -114,6 +155,25 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		const sessionId = ctx.sessionManager.getSessionId();
+		debugLog("session", "session_shutdown", { sessionId });
+		// Run the disposable registry: clears per-session state and
+		// spinner-state entries. Note: the `pi.on(...)` event handlers
+		// and the `pi.registerCommand` call are persistent (the SDK has
+		// no public unregister). They get re-bound on the next reload
+		// via the extension's top-level re-invocation; the registry
+		// is best-effort for what it can clean up.
+		const { disposed, errors } = disposeAll();
+		if (errors.length > 0 && isDebugEnabled()) {
+			for (const { label, error } of errors) {
+				debugLog("dispose-error", label, String(error));
+			}
+		}
+		if (isDebugEnabled()) {
+			debugLog("dispose", "disposed", {
+				count: disposed,
+				errors: errors.length,
+			});
+		}
 		configs.delete(sessionId);
 		groupings.delete(sessionId);
 		clearSessionSpinnerOptions(sessionId);

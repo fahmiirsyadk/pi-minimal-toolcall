@@ -1,5 +1,17 @@
 export { type CommandNotify, runMinimalToolcallCommand } from "./command.js";
 export {
+	clearDebugLog,
+	debugLog,
+	isDebugEnabled,
+	setDebugEnabled,
+	setDebugPath,
+} from "./debug.js";
+export {
+	disposableCount,
+	disposeAll,
+	registerDisposable,
+} from "./disposable.js";
+export {
 	type ConfigLoadResult,
 	type ConfigSaveResult,
 	getConfigPath,
