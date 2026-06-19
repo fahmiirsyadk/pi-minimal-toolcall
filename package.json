@@ -10,6 +10,9 @@
 		"!src/**/*.test.ts",
 		"!src/**/*.test.*.ts",
 		"config",
+		"demo.mp4",
+		"ss_1.png",
+		"ss_2.png",
 		"README.md",
 		"CHANGELOG.md",
 		"LICENSE"
@@ -38,7 +41,9 @@
 	"pi": {
 		"extensions": [
 			"./index.ts"
-		]
+		],
+		"video": "https://github.com/fahmiirsyadk/pi-minimal-toolcall/raw/main/demo.mp4",
+		"image": "https://github.com/fahmiirsyadk/pi-minimal-toolcall/raw/main/ss_1.png"
 	},
 	"keywords": [
 		"pi-package",

@@ -383,20 +383,28 @@ export function nounFor(toolName: string, count: number): string {
 	const singular: Record<string, string> = {
 		bash: "command",
 		read: "file",
+		read_files: "file",
 		edit: "file",
+		edit_files: "file",
 		write: "file",
 		ls: "dir",
 		grep: "search",
+		grep_files: "search",
 		find: "search",
+		find_files: "search",
 	};
 	const plural: Record<string, string> = {
 		bash: "commands",
 		read: "files",
+		read_files: "files",
 		edit: "files",
+		edit_files: "files",
 		write: "files",
 		ls: "dirs",
 		grep: "searches",
+		grep_files: "searches",
 		find: "searches",
+		find_files: "searches",
 	};
 	return count === 1
 		? (singular[toolName] ?? "item")

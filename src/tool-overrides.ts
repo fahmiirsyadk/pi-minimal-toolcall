@@ -780,6 +780,14 @@ function populateExpandedGroup(
 
 export function friendlyLabel(toolName: string): string {
 	if (toolName === "bash") return "Shell";
+	// Batch tools (this package's own) get the same friendly label as
+	// their single-call counterpart. The count + noun distinguish them
+	// in the rendered row; the expanded view's per-item ✓/✗ list
+	// makes the batch shape clear.
+	if (toolName === "read_files") return "Read";
+	if (toolName === "edit_files") return "Edit";
+	if (toolName === "grep_files") return "Grep";
+	if (toolName === "find_files") return "Find";
 	const map: Record<string, string> = {
 		read: "Read",
 		edit: "Edit",

@@ -35,6 +35,22 @@ test("friendlyLabel: unknown tool → passthrough", () => {
 	assert.equal(friendlyLabel("custom_tool"), "custom_tool");
 });
 
+test("friendlyLabel: read_files → Read (batch tool)", () => {
+	assert.equal(friendlyLabel("read_files"), "Read");
+});
+
+test("friendlyLabel: edit_files → Edit (batch tool)", () => {
+	assert.equal(friendlyLabel("edit_files"), "Edit");
+});
+
+test("friendlyLabel: grep_files → Grep (batch tool)", () => {
+	assert.equal(friendlyLabel("grep_files"), "Grep");
+});
+
+test("friendlyLabel: find_files → Find (batch tool)", () => {
+	assert.equal(friendlyLabel("find_files"), "Find");
+});
+
 test("nounFor: bash singular/plural", () => {
 	assert.equal(nounFor("bash", 1), "command");
 	assert.equal(nounFor("bash", 2), "commands");
@@ -48,6 +64,26 @@ test("nounFor: read singular/plural", () => {
 test("nounFor: grep singular/plural", () => {
 	assert.equal(nounFor("grep", 1), "search");
 	assert.equal(nounFor("grep", 2), "searches");
+});
+
+test("nounFor: read_files singular/plural (batch tool)", () => {
+	assert.equal(nounFor("read_files", 1), "file");
+	assert.equal(nounFor("read_files", 3), "files");
+});
+
+test("nounFor: edit_files singular/plural (batch tool)", () => {
+	assert.equal(nounFor("edit_files", 1), "file");
+	assert.equal(nounFor("edit_files", 2), "files");
+});
+
+test("nounFor: grep_files singular/plural (batch tool)", () => {
+	assert.equal(nounFor("grep_files", 1), "search");
+	assert.equal(nounFor("grep_files", 2), "searches");
+});
+
+test("nounFor: find_files singular/plural (batch tool)", () => {
+	assert.equal(nounFor("find_files", 1), "search");
+	assert.equal(nounFor("find_files", 2), "searches");
 });
 
 test("nounFor: unknown tool → item/items", () => {

@@ -1,15 +1,34 @@
-Pi version: 0.79.0+
-Last updated: 2026-06-19 (0.2.1)
+<div align="center">
 
-# @whitespace/pi-minimal-toolcall
+# pi-minimal-toolcall
 
 Minimalist & less noisy tool-call rendering for [Pi](https://github.com/earendil-works/pi-coding-agent).
 
-```
-  Read 3 files & Edit 1 file (src/grouping.ts)  ctrl+o to expand
-  Shell 1 command (cd ./packages && npm test)   ctrl+o to expand
-  thinking
-```
+</div>
+
+<div align="center">
+
+https://github.com/fahmiirsyadk/pi-minimal-toolcall/raw/main/demo.mp4
+
+</div>
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+![ss_1](ss_1.png)
+
+</td>
+<td align="center" width="50%">
+
+![ss_2](ss_2.png)
+
+</td>
+</tr>
+</table>
+
+Pi version: 0.79.0+
+Last updated: 2026-06-19 (0.2.1)
 
 ## Installation
 
