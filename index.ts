@@ -7,6 +7,11 @@ import {
 } from "./src/config/index.js";
 import { createGroupingSession, type GroupingSession } from "./src/grouping.js";
 import {
+	clearSessionSpinnerOptions,
+	registerToolCallSession,
+	setSessionSpinnerOptions,
+} from "./src/spinner-state.js";
+import {
 	clearAllSpinners,
 	overrideBash,
 	overrideEdit,
@@ -94,7 +99,12 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		const grouping = createGroupingSession();
+		const grouping = createGroupingSession(
+			config.groupingMode === "consecutive"
+				? { splitOnDifferentTool: true }
+				: { splitOnDifferentTool: false },
+		);
+		setSessionSpinnerOptions(sessionId, config);
 		groupings.set(sessionId, grouping);
 		registerOverrides(pi, grouping, config);
 		if (config.batchToolsEnabled) {
@@ -106,6 +116,7 @@ export default function (pi: ExtensionAPI) {
 		const sessionId = ctx.sessionManager.getSessionId();
 		configs.delete(sessionId);
 		groupings.delete(sessionId);
+		clearSessionSpinnerOptions(sessionId);
 		// Release any spinner intervals still alive from in-flight calls
 		// that never produced a result (e.g. aborted mid-execution).
 		clearAllSpinners();
@@ -118,13 +129,23 @@ export default function (pi: ExtensionAPI) {
 	// 0-line Text. The new entry becomes the "current" entry and renders
 	// the summary.
 	pi.on("tool_execution_start", (event, ctx) => {
-		const grouping = groupings.get(ctx.sessionManager.getSessionId());
-		if (grouping) {
-			grouping.onToolExecutionStart({
-				toolCallId: event.toolCallId,
-				toolName: event.toolName,
-				args: event.args,
-			});
+		const sessionId = ctx.sessionManager.getSessionId();
+		const grouping = groupings.get(sessionId);
+		const config = configs.get(sessionId);
+		if (!grouping) return;
+		registerToolCallSession(event.toolCallId, sessionId);
+		grouping.onToolExecutionStart({
+			toolCallId: event.toolCallId,
+			toolName: event.toolName,
+			args: event.args,
+		});
+		// "none" grouping mode: every call is its own row. We achieve
+		// this by force-freezing after every `tool_execution_start`,
+		// which causes the next call to open a fresh group. The current
+		// call still joins a (1-entry) group and renders the normal
+		// summary.
+		if (config?.groupingMode === "none") {
+			grouping.freezeCurrentGroup();
 		}
 	});
 

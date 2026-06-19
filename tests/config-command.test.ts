@@ -69,27 +69,35 @@ test("getPresetConfig: 'calm' → deep equal to DEFAULT_MINIMAL_TOOLCALL_CONFIG"
 	assert.deepEqual(getPresetConfig("calm"), DEFAULT_MINIMAL_TOOLCALL_CONFIG);
 });
 
-test("getPresetConfig: 'verbose' → showWorkingIndicator=true, toolsExpandedByDefault=true", () => {
+test("getPresetConfig: 'verbose' → showWorkingIndicator=true, toolsExpandedByDefault=true, plus the verbose rendering knobs", () => {
 	const v = getPresetConfig("verbose");
 	assert.equal(v.showWorkingIndicator, true);
 	assert.equal(v.toolsExpandedByDefault, true);
-	// All other fields are still default (rendering knobs land in plan 003).
+	// Verbose rendering knobs (plan 003).
+	assert.equal(v.showArgOnSummary, "always");
+	assert.equal(v.writeExpandMode, "both");
+	assert.equal(v.expandedBodyMaxLines, 600);
+	assert.equal(v.spinnerIntervalMs, 120);
+	// Fields that verbose does not change stay default.
 	assert.equal(v.groupingMode, DEFAULT_MINIMAL_TOOLCALL_CONFIG.groupingMode);
-	assert.equal(
-		v.expandedBodyMaxLines,
-		DEFAULT_MINIMAL_TOOLCALL_CONFIG.expandedBodyMaxLines,
-	);
 	assert.equal(
 		v.hiddenThinkingLabel,
 		DEFAULT_MINIMAL_TOOLCALL_CONFIG.hiddenThinkingLabel,
 	);
 });
 
-test("getPresetConfig: 'minimal' → hiddenThinkingLabel=''", () => {
+test("getPresetConfig: 'minimal' → hiddenThinkingLabel='' + the minimal rendering knobs", () => {
 	const m = getPresetConfig("minimal");
 	assert.equal(m.hiddenThinkingLabel, "");
 	assert.equal(m.showWorkingIndicator, false);
 	assert.equal(m.toolsExpandedByDefault, false);
+	// Minimal rendering knobs (plan 003).
+	assert.equal(m.showArgOnSummary, "never");
+	assert.equal(m.showDiffSuffix, false);
+	assert.equal(m.showErrorMark, false);
+	assert.equal(m.writeExpandMode, "summary");
+	assert.equal(m.expandedBodyMaxLines, 80);
+	assert.equal(m.spinnerIntervalMs, 50);
 });
 
 test("getPresetConfig: mutating the returned object does not leak into the preset table", () => {

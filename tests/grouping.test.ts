@@ -253,3 +253,84 @@ test("freezeCurrentGroup: no-op when there is no current group", () => {
 	g.freezeCurrentGroup();
 	assert.equal(g.getCurrentGroup(), null);
 });
+
+// --- GroupingOptions: splitOnDifferentTool -------------------------------
+
+test("createGroupingSession({ splitOnDifferentTool: true }): 'consecutive' — read, read, bash, read → 3 groups", () => {
+	const g = createGroupingSession({ splitOnDifferentTool: true });
+	startCall(g, "r1", "read");
+	startCall(g, "r2", "read");
+	startCall(g, "b1", "bash");
+	startCall(g, "r3", "read");
+	const readGroup1 = g.getCurrentGroup("r2");
+	const bashGroup = g.getCurrentGroup("b1");
+	const readGroup2 = g.getCurrentGroup("r3");
+	assert.equal(readGroup1?.entries.length, 2);
+	assert.equal(bashGroup?.entries.length, 1);
+	assert.equal(readGroup2?.entries.length, 1);
+	assert.notEqual(readGroup1, readGroup2);
+	assert.notEqual(bashGroup, readGroup1);
+	assert.notEqual(bashGroup, readGroup2);
+});
+
+test("createGroupingSession({ splitOnDifferentTool: true }): bash's group is 1 entry; r3 starts a new group", () => {
+	const g = createGroupingSession({ splitOnDifferentTool: true });
+	startCall(g, "r1", "read");
+	startCall(g, "r2", "read");
+	startCall(g, "b1", "bash");
+	startCall(g, "r3", "read");
+	assert.equal(g.isGroupLatest("r2"), true);
+	assert.equal(g.isGroupLatest("b1"), true);
+	assert.equal(g.isGroupLatest("r3"), true);
+	assert.equal(g.isGroupLatest("r1"), false);
+});
+
+test("createGroupingSession({ splitOnDifferentTool: false }) (default): read, read, bash, read → 1 group of 4", () => {
+	const g = createGroupingSession({ splitOnDifferentTool: false });
+	startCall(g, "r1", "read");
+	startCall(g, "r2", "read");
+	startCall(g, "b1", "bash");
+	startCall(g, "r3", "read");
+	const finalGroup = g.getCurrentGroup("r3");
+	assert.equal(finalGroup?.entries.length, 4);
+	assert.equal(g.isGroupLatest("r3"), true);
+	assert.equal(g.isGroupLatest("r1"), false);
+	assert.equal(g.isGroupLatest("b1"), false);
+});
+
+// --- renderGroupSummary: showErrorMark + showDiffSuffix --------------------
+
+test("renderGroupSummary: showErrorMark=false → no ✗ even when an entry errored", () => {
+	const g = createGroupingSession();
+	startCall(g, "r1", "read", { path: "/p/x" });
+	g.storeResult("r1", { content: [{ type: "text", text: "x" }] }, true);
+	const group = g.getCurrentGroup("r1")!;
+	const summary = g.renderGroupSummary(group, passThroughTheme, "/p", {
+		showErrorMark: false,
+	});
+	assert.ok(
+		!summary.includes("✗"),
+		`expected no ✗ in: ${JSON.stringify(summary)}`,
+	);
+});
+
+test("renderGroupSummary: showDiffSuffix=false → no +N -M even when entries have diffs", () => {
+	const g = createGroupingSession();
+	startCall(g, "e1", "edit", { path: "/p/x" });
+	g.storeResult("e1", { content: [{ type: "text", text: "ok" }] }, false, {
+		added: 5,
+		removed: 2,
+	});
+	const group = g.getCurrentGroup("e1")!;
+	const summary = g.renderGroupSummary(group, passThroughTheme, "/p", {
+		showDiffSuffix: false,
+	});
+	assert.ok(
+		!summary.includes("+5"),
+		`expected no +5 in: ${JSON.stringify(summary)}`,
+	);
+	assert.ok(
+		!summary.includes("-2"),
+		`expected no -2 in: ${JSON.stringify(summary)}`,
+	);
+});

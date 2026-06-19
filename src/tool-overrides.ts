@@ -15,6 +15,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, Text } from "@earendil-works/pi-tui";
+import type { MinimalToolcallConfig } from "./config/index.js";
+import { DEFAULT_MINIMAL_TOOLCALL_CONFIG } from "./config/index.js";
 import {
 	BODY_PREFIX,
 	type CurrentGroup,
@@ -24,6 +26,11 @@ import {
 	nounFor,
 	renderGroupTitleCore,
 } from "./grouping.js";
+import {
+	getSessionIdForToolCall,
+	getSessionSpinnerOptions,
+	unregisterToolCallSession,
+} from "./spinner-state.js";
 
 type AnyToolDef = ToolDefinition<any, any, any>;
 type ToolFactory = (cwd: string) => AnyToolDef;
@@ -31,10 +38,6 @@ type ToolFactory = (cwd: string) => AnyToolDef;
 /** Max body lines shown inline when expanded. Larger output shows a footer
  * noting how many earlier lines were not stored. */
 export const EXPANDED_BODY_MAX_LINES = 50;
-
-/** Braille spinner frames (matching pi-tui's Loader defaults). */
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const SPINNER_INTERVAL_MS = 80;
 
 interface SpinnerState {
 	frame: number;
@@ -55,10 +58,12 @@ export function getSpinnerFrame(
 	toolCallId: string,
 	invalidate: (() => void) | undefined,
 ): string {
+	const sessionId = getSessionIdForToolCall(toolCallId);
+	const { frames, intervalMs } = getSessionSpinnerOptions(sessionId);
 	const existing = spinnerStates.get(toolCallId);
 	if (existing) {
 		if (invalidate) existing.invalidate = invalidate;
-		return SPINNER_FRAMES[existing.frame] ?? "";
+		return frames[existing.frame] ?? "";
 	}
 	const state: SpinnerState = {
 		frame: 0,
@@ -68,16 +73,18 @@ export function getSpinnerFrame(
 	state.interval = setInterval(() => {
 		const s = spinnerStates.get(toolCallId);
 		if (!s) return;
-		s.frame = (s.frame + 1) % SPINNER_FRAMES.length;
+		const sid = getSessionIdForToolCall(toolCallId);
+		const opts = getSessionSpinnerOptions(sid);
+		s.frame = (s.frame + 1) % opts.frames.length;
 		try {
 			s.invalidate?.();
 		} catch {
 			// component may have been destroyed; the next renderResult
 			// or session_shutdown will clean up
 		}
-	}, SPINNER_INTERVAL_MS);
+	}, intervalMs);
 	spinnerStates.set(toolCallId, state);
-	return SPINNER_FRAMES[state.frame] ?? "";
+	return frames[state.frame] ?? "";
 }
 
 export function clearSpinner(toolCallId: string): void {
@@ -85,6 +92,7 @@ export function clearSpinner(toolCallId: string): void {
 	if (!state) return;
 	clearInterval(state.interval);
 	spinnerStates.delete(toolCallId);
+	unregisterToolCallSession(toolCallId);
 }
 
 /** Clear all active spinners. Call from `session_shutdown` to release
@@ -292,6 +300,7 @@ export function shortCommand(cwd: string, command: string): string {
 function makeOverride(
 	factory: ToolFactory,
 	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
 ): AnyToolDef {
 	const {
 		execute: _execute,
@@ -346,7 +355,16 @@ function makeOverride(
 				: "⠋";
 			const group = grouping.getCurrentGroup(toolCallId);
 			callText.setText(
-				formatSpinnerLine(group, frame, toolName, args, theme, cwd),
+				formatSpinnerLine(
+					group,
+					frame,
+					toolName,
+					args,
+					theme,
+					cwd,
+					config.showArgOnSummary,
+					config.showErrorMark,
+				),
 			);
 			return callText;
 		},
@@ -436,6 +454,7 @@ function makeOverride(
 					theme,
 					cwd: context.cwd,
 					isLatest: false,
+					config,
 				});
 			}
 
@@ -446,7 +465,10 @@ function makeOverride(
 				// types never collide.
 				const summary = getOrCreateResultText(state, () => new Text("", 0, 0));
 				(summary as Text).setText(
-					grouping.renderGroupSummary(group, theme, context.cwd),
+					grouping.renderGroupSummary(group, theme, context.cwd, {
+						showDiffSuffix: config.showDiffSuffix,
+						showErrorMark: config.showErrorMark,
+					}),
 				);
 				return summary;
 			}
@@ -462,6 +484,7 @@ function makeOverride(
 					theme,
 					cwd: context.cwd,
 					isLatest: true,
+					config,
 				},
 			);
 		},
@@ -475,7 +498,16 @@ function formatSpinnerLine(
 	args: unknown,
 	theme: Theme,
 	cwd: string,
+	showArgOnSummary: MinimalToolcallConfig["showArgOnSummary"],
+	showErrorMark: boolean,
 ): string {
+	// Helper: should the arg appear on this line? `"always"` →
+	// everywhere. `"single-only"` → only when the group has one
+	// distinct tool. `"never"` → never.
+	const shouldShowArg = (distinctSize: number) =>
+		showArgOnSummary === "always" ||
+		(showArgOnSummary === "single-only" && distinctSize === 1);
+
 	if (!group || group.entries.length === 0) {
 		// The ToolExecutionComponent is constructed during `message_update`
 		// when the toolCall block streams in — BEFORE `tool_execution_start`
@@ -487,7 +519,7 @@ function formatSpinnerLine(
 		// token-by-token). Once `tool_execution_start` fires, the entry is
 		// registered and the full group title takes over.
 		const label = friendlyLabel(toolName);
-		const arg = argSummaryFor(toolName, args, cwd);
+		const arg = shouldShowArg(1) ? argSummaryFor(toolName, args, cwd) : "";
 		const countPart = `1 ${nounFor(toolName, 1)}`;
 		return arg
 			? `${LEFT_PADDING}${theme.fg("dim", frame)} ${theme.fg("accent", label)} ${theme.fg("text", countPart)} ${theme.fg("muted", `(${arg})`)}`
@@ -495,15 +527,17 @@ function formatSpinnerLine(
 	}
 	// Multi-tool group title (`Shell 2 commands & Read 1 file`),
 	// accent-colored to match the resting expanded header. The live
-	// per-tool counts tick up as each call starts.
-	const core = renderGroupTitleCore(group, theme, "accent");
+	// per-tool counts tick up as each call starts. The per-tool `✗`
+	// is gated on `showErrorMark` (the expanded view always shows
+	// per-entry ✓/✗, only the collapsed summary respects the knob).
+	const core = renderGroupTitleCore(group, theme, "accent", showErrorMark);
 	// Show the running arg only for single-tool groups (a multi-tool
 	// spinner line is already busy; per-tool args would be noise). The
 	// current entry is the latest in the group, so its `args` are the
 	// latest arg.
 	const distinct = new Set(group.entries.map((e) => e.toolName));
 	let argSuffix = "";
-	if (distinct.size === 1) {
+	if (shouldShowArg(distinct.size)) {
 		const arg = argSummaryFor(toolName, args, cwd);
 		argSuffix = arg ? ` ${theme.fg("muted", `(${arg})`)}` : "";
 	}
@@ -518,6 +552,9 @@ interface ExpandedGroupArgs {
 	 * one the user is expanding). False when re-rendering an earlier
 	 * entry's preserved expanded view. Only affects the footer. */
 	isLatest: boolean;
+	/** Per-session config — controls the body tail-cap, the
+	 * `writeExpandMode`, and the per-entry `✓/✗` status. */
+	config: MinimalToolcallConfig;
 }
 
 /** Format a duration in ms as a short string: `< 1s` → `Xms`, `≥ 1s` → `X.Xs`.
@@ -608,7 +645,7 @@ function populateExpandedGroup(
 	container: Component,
 	args: ExpandedGroupArgs,
 ): Component {
-	const { group, theme, cwd, isLatest } = args;
+	const { group, theme, cwd, isLatest, config } = args;
 	const { entries } = group;
 	const collapseHint = keyHint("app.tools.expand", "to collapse");
 	const count = entries.length;
@@ -641,15 +678,40 @@ function populateExpandedGroup(
 		// `Successfully wrote N bytes to <path>` — useless when expanded.
 		// Show the full written content from `args.content` instead
 		// (syntax-highlighted by path), matching the native Pi write
-		// expand. On error there is no content to show, so fall back to
-		// the error text. For all other tools, the text output is the
-		// real body (bash stdout, read file contents, edit's status line).
+		// expand. The `writeExpandMode` config controls which of
+		// {content, summary, both} is rendered. On error there is no
+		// content to show, so fall back to the error text. For all
+		// other tools, the text output is the real body (bash stdout,
+		// read file contents, edit's status line).
 		if (entry.toolName === "write" && !entry.isError) {
-			const writeLines = renderWriteContentLines(entry.args, theme);
-			if (writeLines.length > 0) {
-				items.push(...writeLines);
+			if (config.writeExpandMode === "summary") {
+				// Native status line only.
+				const output = entry.output ?? "(no output)";
+				for (const line of output.split("\n")) {
+					items.push({ prefix: BODY_PREFIX, text: line });
+				}
+			} else if (config.writeExpandMode === "content") {
+				// Full written content only.
+				const writeLines = renderWriteContentLines(entry.args, theme);
+				if (writeLines.length > 0) {
+					items.push(...writeLines);
+				} else {
+					items.push({ prefix: BODY_PREFIX, text: "(no content)" });
+				}
 			} else {
-				items.push({ prefix: BODY_PREFIX, text: "(no content)" });
+				// "both" — content first, then the native status line.
+				const writeLines = renderWriteContentLines(entry.args, theme);
+				if (writeLines.length > 0) {
+					items.push(...writeLines);
+				} else {
+					items.push({ prefix: BODY_PREFIX, text: "(no content)" });
+				}
+				const output = entry.output ?? "";
+				if (output) {
+					for (const line of output.split("\n")) {
+						items.push({ prefix: BODY_PREFIX, text: line });
+					}
+				}
 			}
 		} else {
 			const output = entry.output ?? "";
@@ -671,8 +733,10 @@ function populateExpandedGroup(
 
 	// Tail-cap the total so the most recent entries (which usually
 	// matter most — bash errors land at the bottom, the latest read is
-	// what the LLM just consumed) stay visible.
-	const cap = EXPANDED_BODY_MAX_LINES * 4;
+	// what the LLM just consumed) stay visible. The cap is the user's
+	// `expandedBodyMaxLines` config (default 200; pre-plan this was
+	// `EXPANDED_BODY_MAX_LINES * 4`, which had the same numeric value).
+	const cap = config.expandedBodyMaxLines;
 	const total = items.length;
 	const showItems = total > cap ? items.slice(-cap) : items;
 
@@ -758,45 +822,69 @@ export function argSummaryFor(
 	}
 }
 
-export function overrideBash(grouping: GroupingSession): AnyToolDef {
+export function overrideBash(
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+): AnyToolDef {
 	return makeOverride(
 		(cwd) => createBashToolDefinition(cwd) as AnyToolDef,
 		grouping,
+		config,
 	);
 }
 
-export function overrideRead(grouping: GroupingSession): AnyToolDef {
+export function overrideRead(
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+): AnyToolDef {
 	return makeOverride(
 		(cwd) => createReadToolDefinition(cwd) as AnyToolDef,
 		grouping,
+		config,
 	);
 }
 
-export function overrideEdit(grouping: GroupingSession): AnyToolDef {
+export function overrideEdit(
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+): AnyToolDef {
 	return makeOverride(
 		(cwd) => createEditToolDefinition(cwd) as AnyToolDef,
 		grouping,
+		config,
 	);
 }
 
-export function overrideWrite(grouping: GroupingSession): AnyToolDef {
+export function overrideWrite(
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+): AnyToolDef {
 	return makeOverride(
 		(cwd) => createWriteToolDefinition(cwd) as AnyToolDef,
 		grouping,
+		config,
 	);
 }
 
-export function overrideGrep(grouping: GroupingSession): AnyToolDef {
+export function overrideGrep(
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+): AnyToolDef {
 	return makeOverride(
 		(cwd) => createGrepToolDefinition(cwd) as AnyToolDef,
 		grouping,
+		config,
 	);
 }
 
-export function overrideFind(grouping: GroupingSession): AnyToolDef {
+export function overrideFind(
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig = DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+): AnyToolDef {
 	return makeOverride(
 		(cwd) => createFindToolDefinition(cwd) as AnyToolDef,
 		grouping,
+		config,
 	);
 }
 

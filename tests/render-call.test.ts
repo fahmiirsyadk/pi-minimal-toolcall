@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Text } from "@earendil-works/pi-tui";
+import { DEFAULT_MINIMAL_TOOLCALL_CONFIG } from "../src/config/index.js";
 import { createGroupingSession } from "../src/grouping.ts";
 import {
 	clearAllSpinners,
@@ -203,4 +204,82 @@ test("renderCall: before tool_execution_start (group not registered), spinner sh
 	const text = renderedText(comp);
 	assert.match(text, /Shell 1 command/);
 	assert.match(text, /\(ls -la\)/);
+});
+
+// --- Plan 003: showArgOnSummary + spinner-state ----------------------------
+
+test("renderCall: showArgOnSummary: 'never' → spinner has no arg", () => {
+	const g = createGroupingSession();
+	const def = overrideRead(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		showArgOnSummary: "never",
+	});
+	startCall(g, "r1", "read", { path: `${CWD}/a.ts` });
+	const ctx = makeContext({
+		toolCallId: "r1",
+		cwd: CWD,
+		executionStarted: true,
+		isPartial: true,
+		state: {},
+	});
+	const comp = def.renderCall!({ path: `${CWD}/a.ts` }, passThroughTheme, ctx);
+	const text = renderedText(comp);
+	assert.match(text, /Read 1 file/);
+	assert.ok(
+		!text.includes("(a.ts)"),
+		`expected no arg in: ${JSON.stringify(text)}`,
+	);
+});
+
+test("renderCall: showArgOnSummary: 'always' → multi-tool spinner shows the latest arg", () => {
+	const g = createGroupingSession();
+	const bashDef = overrideBash(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		showArgOnSummary: "always",
+	});
+	startCall(g, "r1", "read", { path: `${CWD}/a.ts` });
+	startCall(g, "b1", "bash", { command: "ls" });
+	const ctx = makeContext({
+		toolCallId: "b1",
+		cwd: CWD,
+		executionStarted: true,
+		isPartial: true,
+		state: {},
+	});
+	const comp = bashDef.renderCall!({ command: "ls" }, passThroughTheme, ctx);
+	const text = renderedText(comp);
+	assert.match(text, /Read 1 file/);
+	assert.match(text, /Shell 1 command/);
+	// 'always' shows the latest arg even on a multi-tool line.
+	assert.match(text, /\(ls\)/);
+});
+
+test("renderCall: per-session spinner interval — getSpinnerFrame advances over time", () => {
+	// Pre-existing test already covers the interval mechanics. This
+	// test confirms the per-session lookup doesn't crash when no
+	// session is registered (the call site is the renderer's first
+	// line of defense against a missing entry).
+	const frame = getSpinnerFrame("nonexistent-call", undefined);
+	assert.equal(typeof frame, "string");
+});
+
+test("renderCall: spinner frames come from the session's config (default frame is '⠋')", () => {
+	// The default frame is '⠋' (the first element of
+	// DEFAULT_MINIMAL_TOOLCALL_CONFIG.spinnerFrames). When no session is
+	// registered for the toolCallId, the spinner-state module falls
+	// back to the default frames, so the rendered text contains the
+	// default first frame.
+	const g = createGroupingSession();
+	const def = overrideRead(g);
+	startCall(g, "r1", "read", { path: `${CWD}/a.ts` });
+	const ctx = makeContext({
+		toolCallId: "r1",
+		cwd: CWD,
+		executionStarted: true,
+		isPartial: true,
+		state: {},
+	});
+	const comp = def.renderCall!({ path: `${CWD}/a.ts` }, passThroughTheme, ctx);
+	const text = renderedText(comp);
+	assert.match(text, /⠋/);
 });

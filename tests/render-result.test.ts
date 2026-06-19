@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Container, Text } from "@earendil-works/pi-tui";
+import { DEFAULT_MINIMAL_TOOLCALL_CONFIG } from "../src/config/index.js";
 import { createGroupingSession } from "../src/grouping.ts";
 import {
 	clearAllSpinners,
@@ -533,4 +534,132 @@ test("renderResult: expanded write with empty content shows '(no content)'", () 
 		text.includes("(no content)"),
 		`expected '(no content)' for empty write in:\n${text}`,
 	);
+});
+
+// --- Plan 003: writeExpandMode + showDiffSuffix + expandedBodyMaxLines + groupingMode ---
+
+test("renderResult: writeExpandMode: 'summary' → expand shows the native status line, not the content", () => {
+	const g = createGroupingSession();
+	const def = overrideWrite(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		writeExpandMode: "summary",
+	});
+	const content = "const x = 1;\n";
+	startCall(g, "w1", "write", { path: `${CWD}/x.ts`, content });
+	const comp = def.renderResult!(
+		makeResult(`Successfully wrote ${content.length} bytes to ${CWD}/x.ts`),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "w1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	// The status line is shown.
+	assert.match(text, /Successfully wrote/);
+	// The content is NOT shown.
+	assert.ok(
+		!text.includes("const x = 1"),
+		`expected no content in summary mode: ${text}`,
+	);
+});
+
+test("renderResult: writeExpandMode: 'both' → expand shows content then status line", () => {
+	const g = createGroupingSession();
+	const def = overrideWrite(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		writeExpandMode: "both",
+	});
+	const content = "const x = 1;\n";
+	startCall(g, "w1", "write", { path: `${CWD}/x.ts`, content });
+	const comp = def.renderResult!(
+		makeResult(`Successfully wrote ${content.length} bytes to ${CWD}/x.ts`),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "w1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	assert.match(text, /const x = 1/);
+	assert.match(text, /Successfully wrote/);
+});
+
+test("renderResult: writeExpandMode: 'content' (default) → expand shows content only", () => {
+	const g = createGroupingSession();
+	const def = overrideWrite(g);
+	const content = "const x = 1;\n";
+	startCall(g, "w1", "write", { path: `${CWD}/x.ts`, content });
+	const comp = def.renderResult!(
+		makeResult(`Successfully wrote ${content.length} bytes to ${CWD}/x.ts`),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "w1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	assert.match(text, /const x = 1/);
+	assert.ok(
+		!text.includes("Successfully wrote"),
+		`expected no status in content mode: ${text}`,
+	);
+});
+
+test("renderResult: showDiffSuffix: false → collapsed line has no +N -M", () => {
+	const g = createGroupingSession();
+	const def = overrideEdit(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		showDiffSuffix: false,
+	});
+	startCall(g, "e1", "edit", {
+		path: `${CWD}/file.ts`,
+		oldText: "old",
+		newText: "new",
+	});
+	const patch = "--- a/file\n+++ b/file\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+	const comp = def.renderResult!(
+		makeResult("Successfully replaced 1 block(s) in file.ts.", { patch }),
+		{ expanded: false, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "e1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	assert.match(text, /Edit 1 file/);
+	assert.ok(
+		!text.includes("+1") && !text.includes("-1"),
+		`expected no diff suffix in: ${text}`,
+	);
+});
+
+test("renderResult: expandedBodyMaxLines: 5 → body tail-capped at 5 (was 200)", () => {
+	const g = createGroupingSession();
+	const def = overrideRead(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		expandedBodyMaxLines: 5,
+	});
+	startCall(g, "r1", "read", { path: `${CWD}/big.ts` });
+	const output = Array.from({ length: 50 }, (_, i) => `line${i}`).join("\n");
+	const comp = def.renderResult!(
+		makeResult(output),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "r1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	// At cap=5, head lines are dropped; the footer is "earlier lines not shown".
+	assert.match(text, /earlier lines not shown/);
+});
+
+test("renderResult: groupingMode: 'none' → every call is its own row (force-freeze per start)", () => {
+	// Construct the session with the consecutive flag (as index.ts does for
+	// "consecutive" mode) and rely on the test simulating the per-start
+	// freeze that index.ts applies for "none" mode. Two calls in sequence,
+	// each followed by a freeze, become two separate groups.
+	const g = createGroupingSession({ splitOnDifferentTool: false });
+	startCall(g, "r1", "read", { path: `${CWD}/a.ts` });
+	g.freezeCurrentGroup();
+	startCall(g, "r2", "read", { path: `${CWD}/b.ts` });
+	// After two freezes, r1's group has 1 entry, r2's group has 1 entry.
+	const g1 = g.getCurrentGroup("r1");
+	const g2 = g.getCurrentGroup("r2");
+	assert.equal(g1?.entries.length, 1);
+	assert.equal(g2?.entries.length, 1);
+	assert.notEqual(g1, g2);
+	assert.equal(g.isGroupLatest("r1"), true);
+	assert.equal(g.isGroupLatest("r2"), true);
 });

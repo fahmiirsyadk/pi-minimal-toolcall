@@ -112,8 +112,13 @@ export interface GroupingSession {
 		isError: boolean,
 		diffInfo?: DiffInfo,
 	): void;
-	/** Render the `<Friendly> <count> <noun>[ & <Friendly> <count> <noun>] (arg) [+N -M] [✗] ctrl+o to expand` summary line. */
-	renderGroupSummary(group: CurrentGroup, theme: Theme, cwd: string): string;
+	/** Render the `<Friendly> <count> <noun>[ & <Friendly> <count> <noun>] (arg) [+N -M] [✗] ctrl+o to expand` summary line. The `options` arg gates the `+N -M` diff suffix and the per-tool `✗` mark; both default to `true` so the existing 3-arg call shape still works. */
+	renderGroupSummary(
+		group: CurrentGroup,
+		theme: Theme,
+		cwd: string,
+		options?: { showDiffSuffix?: boolean; showErrorMark?: boolean },
+	): string;
 	/**
 	 * Freeze the currently-accumulating group so the next tool call
 	 * starts a fresh group. Call when a text or thinking block appears
@@ -127,10 +132,34 @@ export interface GroupingSession {
 }
 
 /**
+ * Internal options for `createGroupingSession`. All callers in this
+ * package construct the session from `index.ts`, which reads the
+ * user's `groupingMode` config flag and translates it into the right
+ * combination of these options. External callers (tests, future
+ * extensions) can use this directly.
+ */
+export interface GroupingOptions {
+	/**
+	 * When `true`, a different tool name starts a new group. This is
+	 * the "consecutive-by-tool-name" mode (the package's pre-proximity
+	 * behavior). When `false` (the default), any tool call joins the
+	 * current group regardless of tool name; the group is frozen
+	 * only by an explicit `freezeCurrentGroup` call (driven by
+	 * `text_start` / `thinking_start` in `index.ts` and by
+	 * `agent_start`). The "none" config mode is implemented in
+	 * `index.ts` by force-freezing after every `tool_execution_start`,
+	 * not by a flag on the session.
+	 */
+	splitOnDifferentTool: boolean;
+}
+
+/**
  * Build a fresh `GroupingSession`. Call once per `session_start` and
  * thread the result through the override renderers for that session.
  */
-export function createGroupingSession(): GroupingSession {
+export function createGroupingSession(
+	options: GroupingOptions = { splitOnDifferentTool: false },
+): GroupingSession {
 	// The currently-accumulating group. Frozen to `null` by
 	// `freezeCurrentGroup` when text/thinking appears between tool calls
 	// or a new agent loop starts; the next tool call opens a fresh group.
@@ -150,7 +179,16 @@ export function createGroupingSession(): GroupingSession {
 		// is intended — `read, read, bash` with nothing between becomes
 		// one row `Read 2 files & Shell 1 command`. The group is frozen
 		// only by a text/thinking block or a new agent loop.
+		// When `options.splitOnDifferentTool` is true (the
+		// "consecutive" config mode), a different tool name starts a
+		// new group and freezes the previous one — the pre-proximity
+		// behavior.
 		if (!currentGroup) {
+			currentGroup = { entries: [] };
+		} else if (
+			options.splitOnDifferentTool &&
+			currentGroup.entries.at(-1)?.toolName !== event.toolName
+		) {
 			currentGroup = { entries: [] };
 		}
 		// Push the new entry first so the group state is up to date when
@@ -244,6 +282,7 @@ export function renderGroupTitleCore(
 	group: CurrentGroup,
 	theme: Theme,
 	labelColor: "dim" | "accent",
+	showErrorMark = true,
 ): string {
 	const { entries } = group;
 	const order: string[] = [];
@@ -262,7 +301,10 @@ export function renderGroupTitleCore(
 		const count = counts.get(toolName) ?? 0;
 		const label = friendlyLabel(toolName);
 		const noun = nounFor(toolName, count);
-		const mark = errored.has(toolName) ? ` ${theme.fg("error", "✗")}` : "";
+		const mark =
+			showErrorMark && errored.has(toolName)
+				? ` ${theme.fg("error", "✗")}`
+				: "";
 		return `${theme.fg(labelColor, label)} ${theme.fg("text", `${count} ${noun}`)}${mark}`;
 	});
 	return parts.join(` ${sep} `);
@@ -289,11 +331,15 @@ function renderGroupSummary(
 	group: CurrentGroup,
 	theme: Theme,
 	cwd: string,
+	options: { showDiffSuffix: boolean; showErrorMark: boolean } = {
+		showDiffSuffix: true,
+		showErrorMark: true,
+	},
 ): string {
 	const { entries } = group;
 	const distinctTools = new Set(entries.map((e) => e.toolName));
 	const isSingle = distinctTools.size === 1;
-	const core = renderGroupTitleCore(group, theme, "dim");
+	const core = renderGroupTitleCore(group, theme, "dim", options.showErrorMark);
 	// Aggregate net diff across all edit/write entries.
 	let added = 0;
 	let removed = 0;
@@ -304,7 +350,9 @@ function renderGroupSummary(
 		}
 	}
 	const diffSuffix =
-		added > 0 || removed > 0 ? formatDiffSuffix({ added, removed }, theme) : "";
+		options.showDiffSuffix && (added > 0 || removed > 0)
+			? formatDiffSuffix({ added, removed }, theme)
+			: "";
 	let argSuffix = "";
 	if (isSingle) {
 		const latest = entries.at(-1);

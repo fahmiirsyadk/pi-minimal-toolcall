@@ -37,9 +37,15 @@ const PRESET_CONFIGS: Record<PresetName, MinimalToolcallConfig> = {
 	},
 	verbose: {
 		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
-		// Calm-defaults differences (rendering knobs land in plan 003).
+		// Calm-defaults differences (from plan 002).
 		showWorkingIndicator: true,
 		toolsExpandedByDefault: true,
+		// Rendering differences (plan 003).
+		showArgOnSummary: "always",
+		showDiffSuffix: true,
+		writeExpandMode: "both",
+		expandedBodyMaxLines: 600,
+		spinnerIntervalMs: 120,
 		registerToolOverrides: {
 			...DEFAULT_MINIMAL_TOOLCALL_CONFIG.registerToolOverrides,
 		},
@@ -51,6 +57,13 @@ const PRESET_CONFIGS: Record<PresetName, MinimalToolcallConfig> = {
 		showWorkingIndicator: false,
 		toolsExpandedByDefault: false,
 		hiddenThinkingLabel: "",
+		// Rendering differences.
+		showArgOnSummary: "never",
+		showDiffSuffix: false,
+		showErrorMark: false,
+		writeExpandMode: "summary",
+		expandedBodyMaxLines: 80,
+		spinnerIntervalMs: 50,
 		registerToolOverrides: {
 			...DEFAULT_MINIMAL_TOOLCALL_CONFIG.registerToolOverrides,
 		},
