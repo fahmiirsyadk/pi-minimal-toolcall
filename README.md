@@ -49,6 +49,12 @@ Pi package manager:
 pi install npm:@fahmiirsyadk/pi-minimal-toolcall
 ```
 
+Git Repository:
+
+```
+pi install git:github.com/fahmiirsyadk/pi-minimal-toolcall
+```
+
 Local clone (for development or pinning to a fork):
 
 ```bash
