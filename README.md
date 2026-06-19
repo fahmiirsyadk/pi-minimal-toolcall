@@ -1,83 +1,12 @@
 # @whitespace/pi-minimal-toolcall
 
-A calmer, more compact tool-call view for [Pi](https://github.com/earendil-works/pi-coding-agent). Replaces Pi's default per-call tool blocks with one quiet row per group of consecutive same-tool calls, relative paths, no background box, and collapsed thinking. Press `ctrl+o` to expand any row inline.
+Calm tool-call rendering for [Pi](https://github.com/earendil-works/pi-coding-agent). One row per group of consecutive tool calls, regardless of tool name. Multi-tool groups join with `&`. Relative paths, syntax-highlighted write expand, `ctrl+o` to expand inline.
 
 ```
-  ⠋ Read 3 files (src/grouping.ts)                              ctrl+o to expand
-  Edit 2 files (README.md) +5 -3                                ctrl+o to expand
-  Write 1 file (scroll-preserve.md) +120                        ctrl+o to expand
-  shell 2 commands (cd ./packages && biome check --write .)     ctrl+o to expand
+  Read 3 files & Edit 1 file (src/grouping.ts)              ctrl+o to expand
+  Shell 1 command (cd ./packages && bun test)              ctrl+o to expand
   thinking
 ```
-
-## Features
-
-### One row per group
-
-When the model calls the same tool several times in a row, those calls collapse into a **single row that updates in place** instead of producing one block per call. The count ticks up and the latest argument replaces the previous one, so a 10-call `read` run is still just one line:
-
-```
-  Read 10 files (src/batch-tools.ts)                            ctrl+o to expand
-```
-
-A different tool name cuts the group and starts a new one, so the count always reflects the current consecutive run, not the whole session. `read → read → read` renders as one row; `read → bash → read` renders as three.
-
-### Live spinner
-
-While a call is in flight, the row shows an animated Braille spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) in the same `label + count + noun (arg)` shape as the final summary, so you see the final structure immediately. When the result lands, the spinner is replaced by the group summary.
-
-### Diff net lines
-
-For `edit` and `write`, the collapsed summary appends `+N -M` (added/removed line counts) beside the path — parsed from the unified patch for `edit`, or computed from the pre-execution file content for `write`.
-
-### Inline expand on `ctrl+o`
-
-Press `ctrl+o` on a row to expand it **inline in the chat** — no modal, no popup. The row grows into a container showing the full output, then press `ctrl+o` again to collapse. Multiple rows can be expanded at once.
-
-For a grouped row, the expanded view shows **every call in the group**, not just the most recent. Each call gets its own header:
-
-```
-  ✓ src/grouping.ts +3 -1  1.2s
-  ✓ src/tool-overrides.ts +8 -2  500ms
-```
-
-…followed by that call's text output and (for `edit`) the full unified diff with `+`/`-` coloring. The combined body is tail-capped at 200 lines so a huge group never floods the TUI; a `… N earlier lines not shown` footer notes any truncation.
-
-### Calm UI defaults
-
-On session start, the extension sets the resting state to calm:
-
-- **Working indicator suppressed** — no blinking "working…" line.
-- **Tool output collapsed by default** — one row per group; expand with `ctrl+o`.
-- **Thinking hidden** behind a single minimal `thinking` label (expand with `ctrl+t`).
-
-You can still expand anything on demand; only the resting state changes.
-
-### Relative paths
-
-Paths are relativized against the live `cwd` at execution time, so deep absolute paths render as short project-relative ones:
-
-```
-/home/user/code/pi-stuff/packages/pi-minimal-toolcall/src/grouping.ts
-        →  src/grouping.ts
-```
-
-Bash commands with embedded cwd paths are relativized too (`cd /home/user/code/.../packages` → `cd ./packages`), with token-boundary matching so a path that merely *contains* `cwd` as a substring (e.g. `/home/user-backup`) is left alone.
-
-## Batch tools
-
-The extension also registers four batch tools the model can call instead of repeating the built-ins. Each batch call renders as one row; `ctrl+o` expands to per-item `✓`/`✗` status plus aggregated output.
-
-| Tool | Input | Replaces |
-| --- | --- | --- |
-| `read_files` | `{ paths, offset?, limit? }` | 2+ `read` calls |
-| `edit_files` | `{ edits: [{ path, oldText, newText }] }` | multiple `edit` calls |
-| `grep_files` | `{ queries: [{ pattern, path?, ... }] }` | multiple `grep` calls |
-| `find_files` | `{ queries: [{ pattern, path?, limit? }] }` | multiple `find` calls |
-
-- **Partial failures surface per item** (`✗ path <error>`); the batch throws only if *every* item fails.
-- **Live `cwd`** — each item runs the built-in tool definition with the current `ctx.cwd`.
-- **Spinner stays stable** while a batch is in flight: per-item `onUpdate` ticks keep the spinner alive without allocating a row per item. Once the final result lands, the spinner is replaced by the collapsed summary (`Read 4 files`, `Edit 2 files`, `Grep 3 searches`, `Find 1 search`).
 
 ## Install
 
@@ -85,19 +14,93 @@ The extension also registers four batch tools the model can call instead of repe
 pi install npm:@whitespace/pi-minimal-toolcall
 ```
 
-One-off session:
+That's it. Defaults are calm. Edit the config file to change anything.
 
-```bash
-pi -e npm:@whitespace/pi-minimal-toolcall
+## Quick start
+
+Edit `~/.pi/agent/extensions/pi-minimal-toolcall/config.json` (or `$PI_CODING_AGENT_DIR/extensions/pi-minimal-toolcall/config.json`):
+
+```json
+{
+  "showWorkingIndicator": true,
+  "toolsExpandedByDefault": true,
+  "hiddenThinkingLabel": "",
+  "registerToolOverrides": { "bash": false },
+  "groupingMode": "proximity",
+  "showArgOnSummary": "always"
+}
 ```
 
-Requires `@earendil-works/pi-coding-agent`, `pi-ai`, and `pi-tui` `^0.79.0` (declared as peer dependencies).
+Then `/reload` to apply.
+
+Try the bundled presets:
+
+```text
+/minimal-toolcall                       # show the effective config + path
+/minimal-toolcall preset verbose        # more expanded, args on multi-tool rows
+/minimal-toolcall preset minimal        # bare frames, no args, no diff
+/minimal-toolcall reset                 # back to defaults
+```
+
+## What you get
+
+| Behavior | Default | How to change |
+| --- | --- | --- |
+| Working indicator | hidden | `showWorkingIndicator: true` |
+| Tool rows | collapsed | `toolsExpandedByDefault: true` |
+| Thinking | hidden behind `thinking` label | `hiddenThinkingLabel: "..."` |
+| Grouping mode | `proximity` (any tool call joins until text/thinking) | `groupingMode: "consecutive" \| "none"` |
+| Latest arg on summary | single-tool groups only | `showArgOnSummary: "always" \| "never"` |
+| Aggregated `+N -M` | on | `showDiffSuffix: false` |
+| Per-tool `✗` | on | `showErrorMark: false` |
+| Write expand | full content, syntax-highlighted | `writeExpandMode: "summary" \| "both"` |
+| Expanded body cap | 200 lines | `expandedBodyMaxLines: <n>` |
+| Spinner | `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` @ 80ms | `spinnerFrames: ["a","b"]`, `spinnerIntervalMs: <n>` |
+| Per-tool ownership | all 7 built-ins | `registerToolOverrides: { "read": false, ... }` |
+| Batch tools (`read_files`, `edit_files`, `grep_files`, `find_files`) | on | `batchToolsEnabled: false` |
+| Debug log | off | `debug: true` (writes to `<agent-dir>/.../debug/debug.log`) |
+
+Presets: `calm` (default), `verbose` (expanded previews, larger caps, args on multi-tool rows), `minimal` (bare frames, no diff, no error mark).
+
+## How grouping works
+
+A **group** is a run of tool calls with no text or thinking between them, regardless of tool name. Frozen when a text or thinking block appears (`message_update` with `text_start` / `thinking_start`), or when a new agent loop starts (`agent_start` — separates prompts).
+
+```
+read, read, read                  → Read 3 files
+read, read, bash, read            → one row (proximity)
+text or thinking
+bash, bash                        → Shell 2 commands (new group)
+```
+
+`groupingMode: "consecutive"` restores the old "different tool name = new group" behavior. `"none"` makes every call its own row.
+
+## When a tool belongs to another extension
+
+Other extensions register their own tools with their own renderers. Their rows break proximity groups — a `read_files` from us followed by an `ide_find_symbol` from another ext renders as two rows, not a multi-tool group. Set `registerToolOverrides.<tool>: false` to let another extension own one of our built-ins.
+
+## Batch tools
+
+The package registers four batch tools the model can call instead of repeating built-ins:
+
+| Tool | Input |
+| --- | --- |
+| `read_files` | `{ paths, offset?, limit? }` |
+| `edit_files` | `{ edits: [{ path, oldText, newText }] }` |
+| `grep_files` | `{ queries: [{ pattern, path? }] }` |
+| `find_files` | `{ queries: [{ pattern, path? }] }` |
+
+Each renders as one row; `ctrl+o` expands to per-item `✓`/`✗` status plus aggregated output. Partial failures surface per item.
+
+## Reload
+
+`/reload` re-reads `config.json` and re-registers. Tool ownership, the per-tool grouping session, and the debug-log path all take effect on the next `session_start`.
 
 ## Compatibility
 
-- **Scroll preservation is opt-in.** Expanding a tool row that sits above the visible viewport triggers a full TUI re-render that clears terminal scrollback. To preserve scrollback in that case, install `@whitespace/pi-preserve-scroll` alongside this package — it ships the TUI patch.
-- **Other extensions calling `setToolsExpanded`** are unaffected — this package only changes the renderer, not *when* `setToolsExpanded` fires.
-- **Tools registered by other extensions** are not part of the grouping. They render with their own renderer; if a group mixes our tools and another extension's tool, the other tool's row breaks the group.
+- Pi `^0.79.0` (peer deps on `@earendil-works/pi-coding-agent`, `pi-ai`, `pi-tui`).
+- `pi-minimal-toolcall` only changes tool rendering. `setToolsExpanded`, `setWorkingVisible`, and `setHiddenThinkingLabel` are still driven by Pi (this package sets the resting state, not the toggle).
+- Tools registered by other extensions render with their own renderer and break proximity groups.
 
 ## Development
 
