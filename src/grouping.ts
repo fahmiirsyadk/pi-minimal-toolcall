@@ -7,14 +7,31 @@ import {
 } from "./tool-overrides.js";
 
 /**
- * One entry in a tool-call group. Consecutive grouping: a run of the
- * same tool name accumulates into one group; a different tool name
- * freezes the current group and starts a new one. Only the last entry
- * in each group renders the summary; earlier entries collapse to a
- * 0-line `Text`. Each entry's `output` / `isError` / `diffSuffix` are
- * filled in by `storeResult` when the entry's final result lands, so
- * the expanded view can render every call in the group, not just the
- * most recent.
+ * Net diff line counts for an edit/write entry. Aggregated across a
+ * group for the collapsed summary; formatted per-entry in the expanded
+ * view. Reads / bash / ls / grep / find contribute nothing.
+ */
+export interface DiffInfo {
+	added: number;
+	removed: number;
+}
+
+/**
+ * One entry in a tool-call group. **Proximity grouping**: a run of tool
+ * calls with NO text or thinking block between them accumulates into one
+ * group, regardless of tool name. A text or thinking block (or a new
+ * agent loop) freezes the current group; the next tool call starts a
+ * fresh one. This keeps a group's single row at the position where its
+ * calls actually ran, instead of same-tool calls compounding and
+ * shifting across text/thinking (the old flaw: `shell, shell` →
+ * `Shell 2`, then thinking, then `shell` joined the pre-thinking group
+ * → `Shell 3` rendered at the bottom, so the earlier shells visually
+ * "shifted" below the thinking). Only the last entry in each group
+ * renders the summary; earlier entries collapse to a 0-line `Text`.
+ * Each entry's `output` / `isError` / `diffInfo` / `details` are filled
+ * in by `storeResult` when the entry's final result lands, so the
+ * expanded view can render every call in the group, not just the most
+ * recent.
  */
 export interface GroupEntry {
 	toolCallId: string;
@@ -30,8 +47,9 @@ export interface GroupEntry {
 	output?: string;
 	/** Whether this entry's result was an error. */
 	isError?: boolean;
-	/** Pre-formatted, theme-colored diff suffix (e.g. ` +5 -3`). */
-	diffSuffix?: string;
+	/** Net diff lines (edit/write). Aggregated for the collapsed summary,
+	 * formatted per-entry in the expanded view. */
+	diffInfo?: DiffInfo;
 	/** Wall-clock time the tool started (`Date.now()` at `onToolExecutionStart`). */
 	startedAt: number;
 	/** How long the tool took, in ms (`Date.now() - startedAt` at `storeResult`). */
@@ -42,8 +60,12 @@ export interface GroupEntry {
 	details?: unknown;
 }
 
-interface CurrentGroup {
-	toolName: string;
+/**
+ * A proximity group: a run of tool calls with no text/thinking between
+ * them. Mixed tool names are intended — `read, read, bash` becomes one
+ * group summarized as `Read 2 files & Shell 1 command`.
+ */
+export interface CurrentGroup {
 	entries: GroupEntry[];
 }
 
@@ -56,12 +78,13 @@ interface CurrentGroup {
  */
 export interface GroupingSession {
 	/**
-	 * Adds a new tool entry to the current group if its tool name
-	 * matches, otherwise freezes the current group and starts a new
-	 * one. Freezing leaves the previous group's latest entry visible
-	 * (its summary is not invalidated); only the previous entry
-	 * *within the same group* is invalidated so it collapses. Idempotent
-	 * for duplicate start events on the same `toolCallId`.
+	 * Adds a new tool entry to the current group if one is open,
+	 * otherwise starts a new one. A group is frozen (set to null) by
+	 * `freezeCurrentGroup` when a text or thinking block appears between
+	 * tool calls, or when a new agent loop starts — NOT by a change in
+	 * tool name. Pushing the new entry invalidates the previous entry in
+	 * the same group so it collapses to 0-line. Idempotent for duplicate
+	 * start events on the same `toolCallId`.
 	 */
 	onToolExecutionStart(event: {
 		toolCallId: string;
@@ -87,16 +110,20 @@ export interface GroupingSession {
 			details?: unknown;
 		},
 		isError: boolean,
-		diffSuffix?: string,
+		diffInfo?: DiffInfo,
 	): void;
-	/** Render the `<friendly> <count> <noun> (latest arg) [+N -M] [✗]` summary line. */
-	renderGroupSummary(
-		group: CurrentGroup,
-		theme: Theme,
-		cwd: string,
-		diffSuffix?: string,
-		isError?: boolean,
-	): string;
+	/** Render the `<Friendly> <count> <noun>[ & <Friendly> <count> <noun>] (arg) [+N -M] [✗] ctrl+o to expand` summary line. */
+	renderGroupSummary(group: CurrentGroup, theme: Theme, cwd: string): string;
+	/**
+	 * Freeze the currently-accumulating group so the next tool call
+	 * starts a fresh group. Call when a text or thinking block appears
+	 * between tool calls (so calls separated by prose/thinking do not
+	 * merge), and at the start of a new agent loop (one per user prompt)
+	 * so a run that ends on `bash` and a later prompt that also starts
+	 * with `bash` do not compound across the user's turn.
+	 * Already-finished groups stay in `entryToGroup` for lookups.
+	 */
+	freezeCurrentGroup(): void;
 }
 
 /**
@@ -104,12 +131,9 @@ export interface GroupingSession {
  * thread the result through the override renderers for that session.
  */
 export function createGroupingSession(): GroupingSession {
-	// The currently-accumulating group. A different tool name freezes
-	// this (it stays in `entryToGroup` for lookups but no new entries
-	// are added) and replaces it with a fresh group. This is
-	// *consecutive* grouping: `read → read → bash → read` produces
-	// three groups (`read` x2, `bash` x1, `read` x1) and three visible
-	// rows, not a single `read` row that grows to 3 across the bash.
+	// The currently-accumulating group. Frozen to `null` by
+	// `freezeCurrentGroup` when text/thinking appears between tool calls
+	// or a new agent loop starts; the next tool call opens a fresh group.
 	let currentGroup: CurrentGroup | null = null;
 	// Reverse index: toolCallId → its group. Used for O(1) lookups in
 	// `isGroupLatest`, `getCurrentGroup(toolCallId)`, and `storeResult`.
@@ -121,12 +145,13 @@ export function createGroupingSession(): GroupingSession {
 		args: unknown;
 	}): void => {
 		if (entryToGroup.has(event.toolCallId)) return;
-		// Consecutive grouping: a different tool name starts a new
-		// group and freezes the previous one. The previous group's
-		// latest entry keeps its summary (it is not invalidated here —
-		// only the previous entry *within the same group* collapses).
-		if (!currentGroup || currentGroup.toolName !== event.toolName) {
-			currentGroup = { toolName: event.toolName, entries: [] };
+		// Proximity grouping: a new tool call joins the current group if
+		// one is open, regardless of tool name. Mixing tools in one group
+		// is intended — `read, read, bash` with nothing between becomes
+		// one row `Read 2 files & Shell 1 command`. The group is frozen
+		// only by a text/thinking block or a new agent loop.
+		if (!currentGroup) {
+			currentGroup = { entries: [] };
 		}
 		// Push the new entry first so the group state is up to date when
 		// the previous entry re-renders. If we invalidated before pushing,
@@ -141,8 +166,9 @@ export function createGroupingSession(): GroupingSession {
 			startedAt: Date.now(),
 		});
 		entryToGroup.set(event.toolCallId, currentGroup);
-		// Only invalidate within the same group: the previous entry
-		// collapses (it is no longer the latest in this group).
+		// Invalidate the previous entry in the same group so it collapses
+		// (it is no longer the latest). Cross-group invalidation does not
+		// happen here — a frozen group's last entry keeps its summary.
 		prev?.invalidate?.();
 	};
 
@@ -178,7 +204,7 @@ export function createGroupingSession(): GroupingSession {
 			details?: unknown;
 		},
 		isError: boolean,
-		diffSuffix?: string,
+		diffInfo?: DiffInfo,
 	): void => {
 		const group = entryToGroup.get(toolCallId);
 		if (!group) return;
@@ -186,7 +212,7 @@ export function createGroupingSession(): GroupingSession {
 		if (!entry) return;
 		entry.output = extractOutput(result);
 		entry.isError = isError;
-		if (diffSuffix !== undefined) entry.diffSuffix = diffSuffix;
+		if (diffInfo) entry.diffInfo = diffInfo;
 		entry.durationMs = Date.now() - entry.startedAt;
 		entry.details = result.details;
 	};
@@ -198,41 +224,95 @@ export function createGroupingSession(): GroupingSession {
 		getCurrentGroup,
 		storeResult,
 		renderGroupSummary,
+		freezeCurrentGroup: () => {
+			currentGroup = null;
+		},
 	};
 }
 
 /**
+ * Render the shared multi-tool title core used by the collapsed summary,
+ * the expanded header, and the live spinner. Format:
+ *   `<Friendly> <count> <noun>[ ✗][ & <Friendly> <count> <noun>[ ✗]]`
+ * Tools appear in the order of their first call within the group. Each
+ * tool's friendly label is colored `labelColor` (`"dim"` for the resting
+ * summary, `"accent"` for the spinner and expanded header); the
+ * `count noun` part is `text`-colored. A tool that has any errored entry
+ * gets a ` ✗` after its count. The `&` separators are `dim`.
+ */
+export function renderGroupTitleCore(
+	group: CurrentGroup,
+	theme: Theme,
+	labelColor: "dim" | "accent",
+): string {
+	const { entries } = group;
+	const order: string[] = [];
+	const counts = new Map<string, number>();
+	const errored = new Set<string>();
+	for (const e of entries) {
+		if (!counts.has(e.toolName)) {
+			order.push(e.toolName);
+			counts.set(e.toolName, 0);
+		}
+		counts.set(e.toolName, (counts.get(e.toolName) ?? 0) + 1);
+		if (e.isError) errored.add(e.toolName);
+	}
+	const sep = theme.fg("dim", "&");
+	const parts = order.map((toolName) => {
+		const count = counts.get(toolName) ?? 0;
+		const label = friendlyLabel(toolName);
+		const noun = nounFor(toolName, count);
+		const mark = errored.has(toolName) ? ` ${theme.fg("error", "✗")}` : "";
+		return `${theme.fg(labelColor, label)} ${theme.fg("text", `${count} ${noun}`)}${mark}`;
+	});
+	return parts.join(` ${sep} `);
+}
+
+/** Format net diff lines as a colored suffix: ` +5 -3` (leading space,
+ * success-colored added, error-colored removed). Empty when both are 0. */
+export function formatDiffSuffix(info: DiffInfo, theme: Theme): string {
+	const parts: string[] = [];
+	if (info.added > 0) parts.push(theme.fg("success", `+${info.added}`));
+	if (info.removed > 0) parts.push(theme.fg("error", `-${info.removed}`));
+	return parts.length > 0 ? ` ${parts.join(" ")}` : "";
+}
+
+/**
  * Render the group summary line. Format:
- *   <friendly> <count> <noun> (latest arg) [+N -M] [✗] [ctrl+o to expand]
- * `diffSuffix` is an already-formatted, theme-colored diff string (e.g.
- * ` +5 -3`) that is appended after the arg summary when present. `cwd` is
- * used to relativize paths and shorten commands. `isError` adds a ` ✗`
- * mark after the noun so a failed tool call is visible without expanding.
+ *   <title-core> [(latest arg)] [+N -M] [ctrl+o to expand]
+ * The `(latest arg)` is shown only for single-tool groups (a multi-tool
+ * line is already busy; paths would be noise). `+N -M` is the net diff
+ * aggregated across every edit/write entry in the group (reads/bash
+ * contribute nothing). `cwd` relativizes the single-tool arg.
  */
 function renderGroupSummary(
 	group: CurrentGroup,
 	theme: Theme,
 	cwd: string,
-	diffSuffix?: string,
-	isError?: boolean,
 ): string {
-	const { toolName, entries } = group;
-	const count = entries.length;
-	const friendly = friendlyLabel(toolName);
-	const noun = nounFor(toolName, count);
-	// Show only the most recent arg in the summary. The count conveys "we
-	// ran N of these" without accumulating every path/command into a
-	// wrapping wall of text. Earlier entries are still collapsed to 0
-	// lines, so the chat shows one row per group that updates in place:
-	// the count ticks up and the latest arg replaces the previous one.
-	const latest = entries.at(-1);
-	const argSummary = latest ? argSummaryFor(toolName, latest.args, cwd) : "";
-	const statusMark = isError ? ` ${theme.fg("error", "✗")}` : "";
-	const head = `${theme.fg("dim", friendly)} ${theme.fg("text", `${count} ${noun}`)}${statusMark}`;
-	const tail = argSummary ? theme.fg("muted", ` (${argSummary})`) : "";
-	const diff = diffSuffix ?? "";
+	const { entries } = group;
+	const distinctTools = new Set(entries.map((e) => e.toolName));
+	const isSingle = distinctTools.size === 1;
+	const core = renderGroupTitleCore(group, theme, "dim");
+	// Aggregate net diff across all edit/write entries.
+	let added = 0;
+	let removed = 0;
+	for (const e of entries) {
+		if (e.diffInfo) {
+			added += e.diffInfo.added;
+			removed += e.diffInfo.removed;
+		}
+	}
+	const diffSuffix =
+		added > 0 || removed > 0 ? formatDiffSuffix({ added, removed }, theme) : "";
+	let argSuffix = "";
+	if (isSingle) {
+		const latest = entries.at(-1);
+		const arg = latest ? argSummaryFor(latest.toolName, latest.args, cwd) : "";
+		argSuffix = arg ? theme.fg("muted", ` (${arg})`) : "";
+	}
 	const hint = theme.fg("dim", " ") + keyHint("app.tools.expand", "to expand");
-	return `${LEFT_PADDING}${head}${tail}${diff}${hint}`;
+	return `${LEFT_PADDING}${core}${argSuffix}${diffSuffix}${hint}`;
 }
 
 /** Left padding for tool call rows. `renderShell: "self"` strips the

@@ -9,15 +9,20 @@ import {
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
+	getLanguageFromPath,
+	highlightCode,
 	keyHint,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, Text } from "@earendil-works/pi-tui";
 import {
 	BODY_PREFIX,
+	type CurrentGroup,
+	formatDiffSuffix,
 	type GroupingSession,
 	LEFT_PADDING,
 	nounFor,
+	renderGroupTitleCore,
 } from "./grouping.js";
 
 type AnyToolDef = ToolDefinition<any, any, any>;
@@ -232,13 +237,6 @@ function computeDiffInfo(
 	return undefined;
 }
 
-function formatDiffSuffix(info: DiffNetLines, theme: Theme): string {
-	const parts: string[] = [];
-	if (info.added > 0) parts.push(theme.fg("success", `+${info.added}`));
-	if (info.removed > 0) parts.push(theme.fg("error", `-${info.removed}`));
-	return parts.length > 0 ? ` ${parts.join(" ")}` : "";
-}
-
 function withSelfShell<T extends AnyToolDef>(def: T): T {
 	return { ...def, renderShell: "self" as const };
 }
@@ -306,15 +304,15 @@ function makeOverride(
 		...staticShape,
 		execute: (toolCallId, params, signal, onUpdate, ctx) =>
 			factory(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx),
-		// During execution, render a one-line spinner (frame + tool label +
-		// arg) on a persistent `Text` stashed in `context.state`. The TUI
-		// shows both `renderCall` and `renderResult` as separate rows, so
-		// the spinner must live on a `Text` we can clear (`setText("")`)
-		// in `renderResult` — otherwise the stale spinner row persists
-		// alongside the summary. The spinner frame cycles every 80ms via
-		// `context.invalidate`. For `write`, we also capture the file's
-		// pre-execution content in `context.state` so the summary can show
-		// `+N -M` diff net lines after execution.
+		// During execution, render a one-line spinner (frame + multi-tool
+		// group title) on a persistent `Text` stashed in `context.state`.
+		// The TUI shows both `renderCall` and `renderResult` as separate
+		// rows, so the spinner must live on a `Text` we can clear
+		// (`setText("")`) in `renderResult` — otherwise the stale spinner
+		// row persists alongside the summary. The spinner frame cycles
+		// every 80ms via `context.invalidate`. For `write`, we also capture
+		// the file's pre-execution content in `context.state` so the
+		// summary can show `+N -M` diff net lines after execution.
 		renderCall: (args, theme, context) => {
 			const toolCallId = context?.toolCallId ?? "";
 			const cwd = context?.cwd ?? "";
@@ -346,19 +344,21 @@ function makeOverride(
 			const frame = toolCallId
 				? getSpinnerFrame(toolCallId, context?.invalidate)
 				: "⠋";
-			const groupCount =
-				grouping.getCurrentGroup(toolCallId)?.entries.length ?? 1;
+			const group = grouping.getCurrentGroup(toolCallId);
 			callText.setText(
-				formatSpinnerLine(toolName, frame, args, theme, cwd, groupCount),
+				formatSpinnerLine(group, frame, toolName, args, theme, cwd),
 			);
 			return callText;
 		},
-		// Group consecutive same-tool calls into a single row that updates in
-		// place. Only the last entry in the group renders anything; earlier
+		// Group proximity-consecutive tool calls (no text/thinking between
+		// them) into a single row that updates in place, regardless of tool
+		// name. Only the last entry in the group renders anything; earlier
 		// entries return a 0-line `Text`, so the chat collapses them and the
-		// count and args shown reflect the cumulative state.
+		// counts shown reflect the cumulative state.
 		//
-		// Collapsed: 1 line (`<friendly> <count> <noun> (latest arg) +N -M ctrl+o to expand`).
+		// Collapsed: 1 line (`<title-core> [(arg)] [+N -M] ctrl+o to expand`,
+		// where `<title-core>` is `Shell 3 commands & Read 1 file` for a
+		// multi-tool group or `Read 2 files` for a single-tool group).
 		// Expanded: a Container with header + body + footer. The user toggles
 		// via the native `setToolsExpanded` mechanism (`ctrl+o`); the TUI's
 		// diff sees the line-count change and re-renders.
@@ -399,11 +399,10 @@ function makeOverride(
 				return getOrCreateResultText(state, () => new Text("", 0, 0));
 			}
 			const diffInfo = computeDiffInfo(toolName, result, context);
-			const diffSuffix = diffInfo
-				? formatDiffSuffix(diffInfo, theme)
-				: undefined;
 			// Store this entry's final result on the group so the expanded
 			// view can render every call in the group, not just the latest.
+			// The numeric `diffInfo` is aggregated across the group for the
+			// collapsed summary and formatted per-entry in the expanded view.
 			grouping.storeResult(
 				context.toolCallId,
 				result as {
@@ -411,7 +410,7 @@ function makeOverride(
 					details?: unknown;
 				},
 				context.isError,
-				diffSuffix,
+				diffInfo,
 			);
 			const isLatest = grouping.isGroupLatest(context.toolCallId);
 
@@ -447,13 +446,7 @@ function makeOverride(
 				// types never collide.
 				const summary = getOrCreateResultText(state, () => new Text("", 0, 0));
 				(summary as Text).setText(
-					grouping.renderGroupSummary(
-						group,
-						theme,
-						context.cwd,
-						diffSuffix,
-						context.isError,
-					),
+					grouping.renderGroupSummary(group, theme, context.cwd),
 				);
 				return summary;
 			}
@@ -476,20 +469,45 @@ function makeOverride(
 }
 
 function formatSpinnerLine(
-	toolName: string,
+	group: CurrentGroup | null,
 	frame: string,
+	toolName: string,
 	args: unknown,
 	theme: Theme,
 	cwd: string,
-	groupCount: number,
 ): string {
-	const label = friendlyLabel(toolName);
-	const arg = argSummaryFor(toolName, args, cwd);
-	const noun = nounFor(toolName, groupCount);
-	const countPart = `${groupCount} ${noun}`;
-	return arg
-		? `${LEFT_PADDING}${theme.fg("dim", frame)} ${theme.fg("accent", label)} ${theme.fg("text", countPart)} ${theme.fg("muted", `(${arg})`)}`
-		: `${LEFT_PADDING}${theme.fg("dim", frame)} ${theme.fg("accent", label)} ${theme.fg("text", countPart)}`;
+	if (!group || group.entries.length === 0) {
+		// The ToolExecutionComponent is constructed during `message_update`
+		// when the toolCall block streams in — BEFORE `tool_execution_start`
+		// registers the entry in the grouping session. The constructor's
+		// `renderCall()` therefore runs with no group yet. Render a
+		// standalone title from the current tool so the spinner shows
+		// `⠋ Shell 1 command (cmd)` instead of a bare `⠋` during the
+		// args-stream phase (longest for bash, whose command can stream
+		// token-by-token). Once `tool_execution_start` fires, the entry is
+		// registered and the full group title takes over.
+		const label = friendlyLabel(toolName);
+		const arg = argSummaryFor(toolName, args, cwd);
+		const countPart = `1 ${nounFor(toolName, 1)}`;
+		return arg
+			? `${LEFT_PADDING}${theme.fg("dim", frame)} ${theme.fg("accent", label)} ${theme.fg("text", countPart)} ${theme.fg("muted", `(${arg})`)}`
+			: `${LEFT_PADDING}${theme.fg("dim", frame)} ${theme.fg("accent", label)} ${theme.fg("text", countPart)}`;
+	}
+	// Multi-tool group title (`Shell 2 commands & Read 1 file`),
+	// accent-colored to match the resting expanded header. The live
+	// per-tool counts tick up as each call starts.
+	const core = renderGroupTitleCore(group, theme, "accent");
+	// Show the running arg only for single-tool groups (a multi-tool
+	// spinner line is already busy; per-tool args would be noise). The
+	// current entry is the latest in the group, so its `args` are the
+	// latest arg.
+	const distinct = new Set(group.entries.map((e) => e.toolName));
+	let argSuffix = "";
+	if (distinct.size === 1) {
+		const arg = argSummaryFor(toolName, args, cwd);
+		argSuffix = arg ? ` ${theme.fg("muted", `(${arg})`)}` : "";
+	}
+	return `${LEFT_PADDING}${theme.fg("dim", frame)} ${core}${argSuffix}`;
 }
 
 interface ExpandedGroupArgs {
@@ -508,6 +526,41 @@ export function formatDuration(ms: number | undefined): string {
 	if (ms === undefined) return "";
 	if (ms < 1000) return `${ms}ms`;
 	return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** Render the full written file content for the expanded view of a `write`
+ * call, matching what the native Pi write tool shows on expand. The write
+ * result's text is just `Successfully wrote N bytes to <path>` — useful as a
+ * collapsed status but useless when expanded, where the user wants to see
+ * the actual code that was written. The content comes from `args.content`
+ * (the model's input), syntax-highlighted by the path's language. Tabs are
+ * replaced with 3 spaces and trailing empty lines trimmed, mirroring the
+ * native `formatWriteCall`. Errors keep the error text (there is no
+ * content to show when the write failed). */
+function renderWriteContentLines(
+	args: unknown,
+	theme: Parameters<NonNullable<AnyToolDef["renderResult"]>>[2],
+): Array<{ prefix: string; text: string }> {
+	if (!args || typeof args !== "object") return [];
+	const a = args as Record<string, unknown>;
+	const rawPath = String(a["path"] ?? a["file_path"] ?? "");
+	const content = typeof a["content"] === "string" ? a["content"] : "";
+	if (content.length === 0) return [];
+	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	// `normalizeDisplayText` just strips CR; replicate inline to avoid
+	// depending on the unexported SDK helper.
+	const normalized = content.replace(/\r/g, "");
+	const renderedLines = lang
+		? highlightCode(normalized, lang)
+		: normalized
+				.split("\n")
+				.map((l) => theme.fg("toolOutput", l.replace(/\t/g, "   ")));
+	// Trim trailing empty lines (matches the native write renderer).
+	let end = renderedLines.length;
+	while (end > 0 && renderedLines[end - 1] === "") end--;
+	return renderedLines
+		.slice(0, end)
+		.map((line) => ({ prefix: BODY_PREFIX, text: line }));
 }
 
 /** Render a unified-diff patch with `+`/`-` coloring for the expanded view.
@@ -556,37 +609,55 @@ function populateExpandedGroup(
 	args: ExpandedGroupArgs,
 ): Component {
 	const { group, theme, cwd, isLatest } = args;
-	const { toolName, entries } = group;
-	const toolLabel = friendlyLabel(toolName);
+	const { entries } = group;
 	const collapseHint = keyHint("app.tools.expand", "to collapse");
 	const count = entries.length;
-	const noun = nounFor(toolName, count);
+	// Multi-tool group title (`Read 3 files & Edit 1 file`),
+	// accent-colored. The aggregated diff is dropped on expand — it is
+	// shown per-entry below.
+	const titleCore = renderGroupTitleCore(group, theme, "accent");
 
 	// Collect every line (group title + per-entry header/body/diff) so we
 	// can tail-cap the total in one pass.
 	const items: Array<{ prefix: string; text: string }> = [
 		{
 			prefix: LEFT_PADDING,
-			text: `${theme.fg("accent", toolLabel)} ${theme.fg("text", `${count} ${noun}`)} ${theme.fg("dim", collapseHint)}`,
+			text: `${titleCore} ${theme.fg("dim", collapseHint)}`,
 		},
 	];
 	for (const entry of entries) {
-		const argSummary = argSummaryFor(toolName, entry.args, cwd);
+		const argSummary = argSummaryFor(entry.toolName, entry.args, cwd);
 		const statusMark = entry.isError
 			? theme.fg("error", "✗")
 			: theme.fg("success", "✓");
-		const diff = entry.diffSuffix ?? "";
+		const diff = entry.diffInfo ? formatDiffSuffix(entry.diffInfo, theme) : "";
 		const dur = formatDuration(entry.durationMs);
 		const durPart = dur ? ` ${theme.fg("dim", dur)}` : "";
 		const headerText = argSummary
 			? `${statusMark} ${theme.fg("muted", argSummary)}${diff}${durPart}`
 			: `${statusMark}${diff}${durPart}`;
 		items.push({ prefix: LEFT_PADDING, text: headerText });
-		// Text output (e.g. "Successfully replaced N block(s)", bash stdout)
-		const output = entry.output ?? "";
-		const bodyLines = output.length > 0 ? output.split("\n") : ["(no output)"];
-		for (const line of bodyLines) {
-			items.push({ prefix: BODY_PREFIX, text: line });
+		// Body content. For `write`, the result text is just
+		// `Successfully wrote N bytes to <path>` — useless when expanded.
+		// Show the full written content from `args.content` instead
+		// (syntax-highlighted by path), matching the native Pi write
+		// expand. On error there is no content to show, so fall back to
+		// the error text. For all other tools, the text output is the
+		// real body (bash stdout, read file contents, edit's status line).
+		if (entry.toolName === "write" && !entry.isError) {
+			const writeLines = renderWriteContentLines(entry.args, theme);
+			if (writeLines.length > 0) {
+				items.push(...writeLines);
+			} else {
+				items.push({ prefix: BODY_PREFIX, text: "(no content)" });
+			}
+		} else {
+			const output = entry.output ?? "";
+			const bodyLines =
+				output.length > 0 ? output.split("\n") : ["(no output)"];
+			for (const line of bodyLines) {
+				items.push({ prefix: BODY_PREFIX, text: line });
+			}
 		}
 		// For edit entries, render the full diff patch (the text output is
 		// just "Successfully replaced N block(s)" — the actual diff lives

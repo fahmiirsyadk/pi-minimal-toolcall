@@ -468,3 +468,69 @@ test("renderResult: expanded edit shows the full diff patch, not just 'Successfu
 		`expected hunk header in:\n${text}`,
 	);
 });
+
+// ─── Write expanded: show full written content ───────────────────────────────
+
+test("renderResult: expanded write shows the full written content, not 'Successfully wrote'", () => {
+	const g = createGroupingSession();
+	const def = overrideWrite(g);
+	const content =
+		"export function add(a: number, b: number): number {\n\treturn a + b;\n}\n";
+	startCall(g, "w1", "write", { path: `${CWD}/add.ts`, content });
+	const comp = def.renderResult!(
+		makeResult(`Successfully wrote ${content.length} bytes to ${CWD}/add.ts`),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "w1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	// The actual code lines should appear in the expanded view.
+	assert.ok(
+		text.includes("export function add"),
+		`expected written code in:\n${text}`,
+	);
+	assert.ok(
+		text.includes("return a + b"),
+		`expected function body in:\n${text}`,
+	);
+	// The bare status line should NOT be the body anymore.
+	assert.ok(
+		!text.includes("Successfully wrote"),
+		`expected no 'Successfully wrote' status line in:\n${text}`,
+	);
+});
+
+test("renderResult: expanded write on error falls back to the error text", () => {
+	const g = createGroupingSession();
+	const def = overrideWrite(g);
+	startCall(g, "w1", "write", { path: `${CWD}/add.ts`, content: "x" });
+	const comp = def.renderResult!(
+		makeResult("EACCES: permission denied"),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "w1", cwd: CWD, isError: true, state: {} }),
+	);
+	const text = renderedText(comp);
+	assert.ok(
+		text.includes("permission denied"),
+		`expected error text on failed write in:\n${text}`,
+	);
+	assert.ok(text.includes("✗"), `expected ✗ mark for error in:\n${text}`);
+});
+
+test("renderResult: expanded write with empty content shows '(no content)'", () => {
+	const g = createGroupingSession();
+	const def = overrideWrite(g);
+	startCall(g, "w1", "write", { path: `${CWD}/empty.txt`, content: "" });
+	const comp = def.renderResult!(
+		makeResult("Successfully wrote 0 bytes to empty.txt"),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "w1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	assert.ok(
+		text.includes("(no content)"),
+		`expected '(no content)' for empty write in:\n${text}`,
+	);
+});

@@ -73,4 +73,34 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 	});
+
+	// A new agent loop starts once per user prompt. Freeze the
+	// currently-accumulating group so a run that ended on `bash` does
+	// not absorb the next prompt's first `bash` into the same group
+	// (e.g. `shell 8` then `shell 9` across the user's turn). The
+	// previous group's last entry keeps its summary; the next tool
+	// call starts a fresh group with a count of 1.
+	pi.on("agent_start", (_event, ctx) => {
+		const grouping = groupings.get(ctx.sessionManager.getSessionId());
+		grouping?.freezeCurrentGroup();
+	});
+
+	// Proximity grouping: a text or thinking block between tool calls
+	// freezes the current group, so calls separated by prose/thinking do
+	// not merge into one shifting row. `message_update` streams
+	// token-by-token with an `assistantMessageEvent` whose `type` marks
+	// the start of each content block. Freezing on `text_start` /
+	// `thinking_start` lands the boundary *before* the next tool call's
+	// `tool_execution_start`, so a run like `read, read → thinking →
+	// bash` produces two groups (`Read 2 files`, then `Shell 1 command`)
+	// that render where their calls actually ran, instead of compounding
+	// `Shell` across the thinking. A turn that emits only tool calls (no
+	// text/thinking) fires no such event, so its tools join the previous
+	// group — matching the "no text or thinking in between → group" rule.
+	pi.on("message_update", (event, ctx) => {
+		const t = event.assistantMessageEvent?.type;
+		if (t !== "text_start" && t !== "thinking_start") return;
+		const grouping = groupings.get(ctx.sessionManager.getSessionId());
+		grouping?.freezeCurrentGroup();
+	});
 }

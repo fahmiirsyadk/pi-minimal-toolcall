@@ -127,16 +127,36 @@ test("renderCall: spinner frame advances over time", async () => {
 	assert.notEqual(frame1, frame0, "spinner frame should advance");
 });
 
-test("renderCall: spinner uses the entry's own group, not the most-recent tool's", () => {
-	// When read and bash interleave, the read entry's spinner should show
-	// "Read N files" (from the read group), not "Shell N commands" (from
-	// the bash group). r1 is the latest in its (frozen) read group, so it
-	// still renders a spinner — and that spinner uses getCurrentGroup("r1")
-	// which returns the read group, not the bash group.
+test("renderCall: same-group multi-tool spinner shows the joined title", () => {
+	// Under proximity grouping, read then bash with nothing between
+	// joins ONE group. The latest (bash) spinner shows the multi-tool
+	// title (`Read 1 file & Shell 1 command`); the earlier read collapses.
+	const g = createGroupingSession();
+	const bashDef = overrideBash(g);
+	startCall(g, "r1", "read", { path: `${CWD}/a.ts` });
+	startCall(g, "b1", "bash", { command: "ls" }); // same group, b1 is latest
+	const ctx = makeContext({
+		toolCallId: "b1",
+		cwd: CWD,
+		executionStarted: true,
+		isPartial: true,
+		state: {},
+	});
+	const comp = bashDef.renderCall!({ command: "ls" }, passThroughTheme, ctx);
+	const text = renderedText(comp);
+	assert.match(text, /Read 1 file/);
+	assert.match(text, /Shell 1 command/);
+	assert.ok(text.includes("&"), `expected & separator in: ${text}`);
+});
+
+test("renderCall: after a freeze, a frozen group's latest still shows its own title", () => {
+	// A frozen group (text/thinking appeared) is not rejoined. The read
+	// group's latest spinner shows `Read N files`, not a later bash group.
 	const g = createGroupingSession();
 	const readDef = overrideRead(g);
 	startCall(g, "r1", "read", { path: `${CWD}/a.ts` });
-	startCall(g, "b1", "bash", { command: "ls" }); // different tool, new group
+	g.freezeCurrentGroup(); // text/thinking froze the read group
+	startCall(g, "b1", "bash", { command: "ls" }); // new group
 	const ctx = makeContext({
 		toolCallId: "r1",
 		cwd: CWD,
@@ -150,10 +170,37 @@ test("renderCall: spinner uses the entry's own group, not the most-recent tool's
 		ctx,
 	);
 	const text = renderedText(comp);
-	// r1 is the latest in its read group (bash froze it, didn't invalidate)
 	assert.match(text, /Read 1 file/);
 	assert.ok(
 		!text.includes("Shell"),
-		"should not show Shell label for a read call",
+		"frozen read group should not show Shell label",
 	);
+});
+
+test("renderCall: before tool_execution_start (group not registered), spinner shows a standalone title", () => {
+	// The ToolExecutionComponent is constructed during `message_update`
+	// when the toolCall block streams in — before `tool_execution_start`
+	// registers the entry in the grouping session. renderCall then runs
+	// with getCurrentGroup() === null. The spinner must still show the
+	// tool title + arg (e.g. `⠋ Shell 1 command (ls)`), not a bare `⠋`.
+	// This is most visible for bash, whose command can stream token-by-
+	// token for a while before execution starts.
+	const g = createGroupingSession();
+	const bashDef = overrideBash(g);
+	// NOTE: no startCall — the entry is not registered yet.
+	const ctx = makeContext({
+		toolCallId: "b1",
+		cwd: CWD,
+		executionStarted: false,
+		isPartial: true,
+		state: {},
+	});
+	const comp = bashDef.renderCall!(
+		{ command: "ls -la" },
+		passThroughTheme,
+		ctx,
+	);
+	const text = renderedText(comp);
+	assert.match(text, /Shell 1 command/);
+	assert.match(text, /\(ls -la\)/);
 });
