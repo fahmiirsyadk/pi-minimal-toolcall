@@ -26,16 +26,27 @@ https://github.com/user-attachments/assets/605cb58b-cbd3-4dfa-9a0d-41f46472038c
 </td>
 </tr>
 </table>
+<div align="center">
+  <i>another extensions you might want to try</i><br/>
+  <a href="https://github.com/fahmiirsyadk/pi-record-term.git">pi-record-term</a>
+  <span>|</span>
+  <a href="https://github.com/fahmiirsyadk/pi-minimal-diff.git">pi-minimal-diff</a>
+</div>
 
-Pi version: 0.79.0+
-Last updated: 2026-06-19 (0.2.1)
+## Visual
+```
+Shell 1 command (grep -rn "friendlyLabel\|nounFor" ./tests ./src --include="*.test.ts" 2>/dev/null | head -10) ctrl+o to expand
+Write 1 file (README.md) +148 -129 ctrl+o to expand
+Shell 1 command & Read 1 file ctrl+o to expand
+⠋ Read file
+```
 
 ## Installation
 
 Pi package manager:
 
 ```bash
-pi install npm:@whitespace/pi-minimal-toolcall
+pi install npm:@fahmiirsyadk/pi-minimal-toolcall
 ```
 
 Local clone (for development or pinning to a fork):
