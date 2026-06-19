@@ -20,9 +20,6 @@ export type ShowArgMode = (typeof SHOW_ARG_MODES)[number];
 export const WRITE_EXPAND_MODES = ["content", "summary", "both"] as const;
 export type WriteExpandMode = (typeof WRITE_EXPAND_MODES)[number];
 
-export const PRESET_NAMES = ["calm", "verbose", "minimal"] as const;
-export type PresetName = (typeof PRESET_NAMES)[number];
-
 export const CUSTOM_TOOL_OUTPUT_MODES = [
 	"hidden",
 	"summary",

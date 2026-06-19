@@ -7,7 +7,6 @@ import {
 	loadConfig,
 	type MinimalToolcallConfig,
 	registerDisposable,
-	runMinimalToolcallCommand,
 	setDebugEnabled,
 } from "./src/config/index.js";
 import { createGroupingSession, type GroupingSession } from "./src/grouping.js";
@@ -68,24 +67,6 @@ export default function (pi: ExtensionAPI) {
 	// the override registration + the event handlers. Same key space
 	// as `groupings`; the two are deleted together at `session_shutdown`.
 	const configs = new Map<string, MinimalToolcallConfig>();
-
-	// Register the `/minimal-toolcall` command at the top level of the
-	// default export so it's available the first time the user opens
-	// the TUI. The handler is a thin wrapper around the pure
-	// `runMinimalToolcallCommand` (in `src/config/command.ts`); the
-	// wrapper exists only to bridge `ctx.ui.notify` to the command's
-	// `CommandNotify` shape.
-	pi.registerCommand("minimal-toolcall", {
-		description:
-			"Show or reset @whitespace/pi-minimal-toolcall config. Subcommands: show, reset, preset <calm|verbose|minimal>. Changes take effect on the next /reload.",
-		handler: async (args, ctx) => {
-			const notify = ctx.hasUI
-				? (message: string, kind: "info" | "warning" | "error") =>
-						ctx.ui.notify(message, kind)
-				: undefined;
-			runMinimalToolcallCommand(args, notify);
-		},
-	});
 
 	// TODO(plan-004): custom-tool decoration deferred. The SDK's
 	// `pi.getAllTools()` returns `ToolInfo` (name + description +

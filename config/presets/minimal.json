@@ -1,0 +1,27 @@
+{
+	"_comment": "minimal preset — bare frames, no args, no diff, no error mark. /reload to apply.",
+	"version": 1,
+	"showWorkingIndicator": false,
+	"toolsExpandedByDefault": false,
+	"hiddenThinkingLabel": "",
+	"registerToolOverrides": {
+		"read": true,
+		"grep": true,
+		"find": true,
+		"ls": true,
+		"bash": true,
+		"edit": true,
+		"write": true
+	},
+	"batchToolsEnabled": true,
+	"groupingMode": "proximity",
+	"expandedBodyMaxLines": 80,
+	"spinnerIntervalMs": 50,
+	"spinnerFrames": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+	"showArgOnSummary": "never",
+	"writeExpandMode": "summary",
+	"showDiffSuffix": false,
+	"showErrorMark": false,
+	"customToolOverrides": {},
+	"debug": false
+}

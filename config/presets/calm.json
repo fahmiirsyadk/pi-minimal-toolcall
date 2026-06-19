@@ -1,0 +1,27 @@
+{
+	"_comment": "calm preset — matches the shipped defaults. Copy to ~/.pi/agent/extensions/pi-minimal-toolcall/config.json (or $PI_CODING_AGENT_DIR/extensions/pi-minimal-toolcall/config.json) and /reload to apply.",
+	"version": 1,
+	"showWorkingIndicator": false,
+	"toolsExpandedByDefault": false,
+	"hiddenThinkingLabel": "thinking",
+	"registerToolOverrides": {
+		"read": true,
+		"grep": true,
+		"find": true,
+		"ls": true,
+		"bash": true,
+		"edit": true,
+		"write": true
+	},
+	"batchToolsEnabled": true,
+	"groupingMode": "proximity",
+	"expandedBodyMaxLines": 200,
+	"spinnerIntervalMs": 80,
+	"spinnerFrames": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+	"showArgOnSummary": "single-only",
+	"writeExpandMode": "content",
+	"showDiffSuffix": true,
+	"showErrorMark": true,
+	"customToolOverrides": {},
+	"debug": false
+}

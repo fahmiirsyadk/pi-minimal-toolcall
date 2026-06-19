@@ -1,6 +1,6 @@
 {
 	"name": "@whitespace/pi-minimal-toolcall",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Calm tool-call rendering for Pi: one row per group of consecutive tool calls, multi-tool groups joined with `&`, relative paths, syntax-highlighted write expand, full per-package config.",
 	"type": "module",
 	"license": "MIT",
@@ -15,11 +15,9 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"check": "bun run lint && bun run typecheck && bun run test",
-		"prepack": "bun run check",
-		"typecheck": "tsgo --noEmit",
-		"lint": "biome check .",
-		"format": "biome check --write .",
+		"check": "npm run typecheck && npm run test",
+		"prepack": "npm run check",
+		"typecheck": "tsc --noEmit",
 		"test": "tsx --test tests/*.test.ts src/**/*.test.ts",
 		"pack:dry": "npm pack --dry-run"
 	},
@@ -30,12 +28,12 @@
 		"typebox": "*"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.0",
 		"@earendil-works/pi-ai": "^0.79.0",
 		"@earendil-works/pi-coding-agent": "^0.79.0",
 		"@earendil-works/pi-tui": "^0.79.0",
 		"@types/node": "^24.10.0",
-		"@typescript/native-preview": "^7.0.0-dev"
+		"tsx": "^4.19.0",
+		"typescript": "^5.9.0"
 	},
 	"pi": {
 		"extensions": [
@@ -50,8 +48,7 @@
 		"minimal",
 		"tool-call",
 		"compact",
-		"configurable",
-		"presets"
+		"configurable"
 	],
 	"publishConfig": {
 		"access": "public"

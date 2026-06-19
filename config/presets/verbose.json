@@ -1,0 +1,27 @@
+{
+	"_comment": "verbose preset — expanded previews, larger caps, args on multi-tool rows. /reload to apply.",
+	"version": 1,
+	"showWorkingIndicator": true,
+	"toolsExpandedByDefault": true,
+	"hiddenThinkingLabel": "thinking",
+	"registerToolOverrides": {
+		"read": true,
+		"grep": true,
+		"find": true,
+		"ls": true,
+		"bash": true,
+		"edit": true,
+		"write": true
+	},
+	"batchToolsEnabled": true,
+	"groupingMode": "proximity",
+	"expandedBodyMaxLines": 600,
+	"spinnerIntervalMs": 120,
+	"spinnerFrames": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+	"showArgOnSummary": "always",
+	"writeExpandMode": "both",
+	"showDiffSuffix": true,
+	"showErrorMark": true,
+	"customToolOverrides": {},
+	"debug": false
+}

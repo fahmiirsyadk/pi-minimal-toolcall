@@ -1,12 +1,75 @@
 # Changelog
 
+## 0.2.0
+
+Dependency diet + drop the direct command surface. Behavior is
+unchanged for users with no config file. The `/minimal-toolcall`
+command and its runtime implementation are removed; the three
+presets now ship as static JSON files under `config/presets/` for
+users to copy. The config schema and all underlying knobs are
+intact — only the runtime was trimmed.
+
+### Changed
+
+- **Dev toolchain: bun + biome → npm + tsc + tsx.** `npm install`
+  replaces `bun install`; `npm run check` runs `tsc --noEmit` plus
+  `tsx --test`. No formatter, no linter. The published tarball is
+  unchanged in shape (still `.ts` source files), and pi's built-in
+  TypeScript loader runs them at install time.
+- **`tsconfig.json` is self-contained.** The package no longer
+  extends the parent monorepo's `tsconfig.base.json` (which is not
+  shipped to npm). All required compiler options are inlined; the
+  strict flags that matter (`verbatimModuleSyntax`,
+  `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`,
+  `exactOptionalPropertyTypes`, `noImplicitOverride`,
+  `noFallthroughCasesInSwitch`) are preserved.
+
+### Removed
+
+- **`/minimal-toolcall` command** (`pi.registerCommand`) and the
+  `runMinimalToolcallCommand` runtime in `src/config/command.ts`.
+  Users who want to see their effective config can `cat
+  ~/.pi/agent/extensions/pi-minimal-toolcall/config.json`; the
+  config file itself is the source of truth.
+- **`PRESET_NAMES` / `PresetName`** and the `presets.ts` module.
+  The `calm` / `verbose` / `minimal` presets now live as static
+  JSON files under `config/presets/` for users to copy. No runtime
+  knows what a preset is.
+- **`@biomejs/biome`** devDep and the `lint` / `format` scripts.
+  The package has no formatter/linter; the source style is
+  maintained by hand. (All 4 plan 001-004 test files were written
+  biome-cleanly, so the file shape matches the conventional 2-space
+  indent + double quotes + semicolons + trailing commas.)
+- **`@typescript/native-preview`** devDep (the `tsgo` binary).
+  Replaced with regular `typescript` + `tsc`. The native preview
+  was only used for the typecheck step; tests already ran under
+  `tsx`.
+- **The `prepack` script's `bun run` invocation.** It now runs
+  `npm run check`. The check still gates `npm publish`.
+
+### Added
+
+- **`config/presets/{calm,verbose,minimal}.json`** — three
+  ready-to-copy starter configs. The README links to them. `calm`
+  is identical to the pre-0.2.0 shipped defaults; `verbose` and
+  `minimal` are the same shapes the runtime presets used to expose.
+
+### Unchanged
+
+- All 141 tests pass. The 18 dropped tests were the
+  `parsePreset` / `getPresetConfig` / `detectPreset` /
+  `runMinimalToolcallCommand` coverage; the underlying behaviors
+  they guarded (the config loader, the presets' values) are still
+  tested via the loader's normalize-on-load path.
+- The full config schema, the per-session spinner state, the
+  proximity grouping, the debug log, the disposable registry, the
+  per-tool ownership, the `customToolOverrides` loader hook — all
+  unchanged.
+
 ## 0.1.0
 
-First public release with full per-package config. Breaking
-behavioral change vs `0.0.1`: now opt-in per-tool, per-rendering-knob,
-and per-preset via a config file at
-`~/.pi/agent/extensions/pi-minimal-toolcall/config.json`
-(respects `PI_CODING_AGENT_DIR`).
+First public release with full per-package config. Behavior-neutral
+for users with no config file.
 
 ### Added
 

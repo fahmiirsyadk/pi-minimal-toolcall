@@ -33,14 +33,11 @@ Edit `~/.pi/agent/extensions/pi-minimal-toolcall/config.json` (or `$PI_CODING_AG
 
 Then `/reload` to apply.
 
-Try the bundled presets:
+Three starter presets ship in [`config/presets/`](./config/presets) — copy the one you want to your config file:
 
-```text
-/minimal-toolcall                       # show the effective config + path
-/minimal-toolcall preset verbose        # more expanded, args on multi-tool rows
-/minimal-toolcall preset minimal        # bare frames, no args, no diff
-/minimal-toolcall reset                 # back to defaults
-```
+- [`calm.json`](./config/presets/calm.json) — the defaults (one row per group, hidden working indicator, collapsed tools, `thinking` label).
+- [`verbose.json`](./config/presets/verbose.json) — expanded previews, larger body cap, args on multi-tool rows, visible working indicator.
+- [`minimal.json`](./config/presets/minimal.json) — bare frames, no args, no diff, no `✗`, empty thinking label.
 
 ## What you get
 
@@ -59,8 +56,6 @@ Try the bundled presets:
 | Per-tool ownership | all 7 built-ins | `registerToolOverrides: { "read": false, ... }` |
 | Batch tools (`read_files`, `edit_files`, `grep_files`, `find_files`) | on | `batchToolsEnabled: false` |
 | Debug log | off | `debug: true` (writes to `<agent-dir>/.../debug/debug.log`) |
-
-Presets: `calm` (default), `verbose` (expanded previews, larger caps, args on multi-tool rows), `minimal` (bare frames, no diff, no error mark).
 
 ## How grouping works
 
@@ -105,10 +100,13 @@ Each renders as one row; `ctrl+o` expands to per-item `✓`/`✗` status plus ag
 ## Development
 
 ```bash
-bun install
-bun run check        # lint + typecheck + test
-bun run pack:dry     # preview the published tarball
+npm install
+npm run check        # typecheck + test
+npm run pack:dry     # preview the published tarball
 ```
+
+Uses `tsc` for typecheck and `tsx --test` for tests. No bundler, no
+formatter, no linter — keep the dep tree small.
 
 ## License
 

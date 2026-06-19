@@ -1,4 +1,3 @@
-export { type CommandNotify, runMinimalToolcallCommand } from "./command.js";
 export {
 	clearDebugLog,
 	debugLog,
@@ -19,7 +18,6 @@ export {
 	normalizeConfig,
 	saveConfig,
 } from "./loader.js";
-export { detectPreset, getPresetConfig, parsePreset } from "./presets.js";
 export {
 	CUSTOM_TOOL_OUTPUT_MODES,
 	type CustomToolOutputMode,
@@ -28,8 +26,6 @@ export {
 	GROUPING_MODES,
 	type GroupingMode,
 	type MinimalToolcallConfig,
-	PRESET_NAMES,
-	type PresetName,
 	SHOW_ARG_MODES,
 	type ShowArgMode,
 	TOOL_OVERRIDE_NAMES,
