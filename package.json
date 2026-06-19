@@ -4,15 +4,15 @@
 	"description": "Minimalist & less noisy tool-call rendering for pi",
 	"type": "module",
 	"license": "MIT",
+	"author": {
+		"name": "fahmiirsyadk"
+	},
 	"files": [
 		"index.ts",
 		"src",
 		"!src/**/*.test.ts",
 		"!src/**/*.test.*.ts",
 		"config",
-		"demo.mp4",
-		"ss_1.png",
-		"ss_2.png",
 		"README.md",
 		"CHANGELOG.md",
 		"LICENSE"
@@ -27,8 +27,7 @@
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
-		"@earendil-works/pi-tui": "*",
-		"typebox": "*"
+		"@earendil-works/pi-tui": "*"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-ai": "^0.79.0",
@@ -42,8 +41,8 @@
 		"extensions": [
 			"./index.ts"
 		],
-		"video": "https://github.com/fahmiirsyadk/pi-minimal-toolcall/raw/main/demo.mp4",
-		"image": "https://github.com/fahmiirsyadk/pi-minimal-toolcall/raw/main/ss_1.png"
+		"video": "https://raw.githubusercontent.com/fahmiirsyadk/pi-minimal-toolcall/refs/heads/main/demo.mp4",
+		"image": "https://raw.githubusercontent.com/fahmiirsyadk/pi-minimal-toolcall/refs/heads/main/ss_1.png"
 	},
 	"keywords": [
 		"pi-package",
