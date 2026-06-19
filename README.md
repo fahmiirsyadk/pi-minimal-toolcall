@@ -8,7 +8,7 @@ Minimalist & less noisy tool-call rendering for [Pi](https://github.com/earendil
 
 <div align="center">
 
-https://github.com/fahmiirsyadk/pi-minimal-toolcall/raw/main/demo.mp4
+https://github.com/user-attachments/assets/605cb58b-cbd3-4dfa-9a0d-41f46472038c
 
 </div>
 
