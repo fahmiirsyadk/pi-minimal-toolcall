@@ -1,7 +1,6 @@
 {
 	"_comment": "verbose preset — expanded previews, larger caps, args on multi-tool rows. /reload to apply.",
 	"version": 1,
-	"showWorkingIndicator": true,
 	"toolsExpandedByDefault": true,
 	"hiddenThinkingLabel": "thinking",
 	"registerToolOverrides": {

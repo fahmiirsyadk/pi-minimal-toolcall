@@ -1,28 +1,46 @@
+Pi version: 0.79.0+
+Last updated: 2026-06-19 (0.2.1)
+
 # @whitespace/pi-minimal-toolcall
 
-Calm tool-call rendering for [Pi](https://github.com/earendil-works/pi-coding-agent). One row per group of consecutive tool calls, regardless of tool name. Multi-tool groups join with `&`. Relative paths, syntax-highlighted write expand, `ctrl+o` to expand inline.
+Minimalist & less noisy tool-call rendering for [Pi](https://github.com/earendil-works/pi-coding-agent).
 
 ```
-  Read 3 files & Edit 1 file (src/grouping.ts)              ctrl+o to expand
-  Shell 1 command (cd ./packages && bun test)              ctrl+o to expand
+  Read 3 files & Edit 1 file (src/grouping.ts)  ctrl+o to expand
+  Shell 1 command (cd ./packages && npm test)   ctrl+o to expand
   thinking
 ```
 
-## Install
+## Installation
+
+Pi package manager:
 
 ```bash
 pi install npm:@whitespace/pi-minimal-toolcall
 ```
 
-That's it. Defaults are calm. Edit the config file to change anything.
+Local clone (for development or pinning to a fork):
 
-## Quick start
+```bash
+git clone https://github.com/fahmiirsyadk/pi-minimal-toolcall.git ~/pi-minimal-toolcall
+```
+
+Then add to your `~/.pi/agent/settings.json`:
+
+```json
+{
+  "extensions": [
+    "~/pi-minimal-toolcall/index.ts"
+  ]
+}
+```
+
+## Quick start for customizing
 
 Edit `~/.pi/agent/extensions/pi-minimal-toolcall/config.json` (or `$PI_CODING_AGENT_DIR/extensions/pi-minimal-toolcall/config.json`):
 
 ```json
 {
-  "showWorkingIndicator": true,
   "toolsExpandedByDefault": true,
   "hiddenThinkingLabel": "",
   "registerToolOverrides": { "bash": false },
@@ -35,15 +53,14 @@ Then `/reload` to apply.
 
 Three starter presets ship in [`config/presets/`](./config/presets) — copy the one you want to your config file:
 
-- [`calm.json`](./config/presets/calm.json) — the defaults (one row per group, hidden working indicator, collapsed tools, `thinking` label).
-- [`verbose.json`](./config/presets/verbose.json) — expanded previews, larger body cap, args on multi-tool rows, visible working indicator.
+- [`calm.json`](./config/presets/calm.json) — the defaults (one row per group, collapsed tools, `thinking` label).
+- [`verbose.json`](./config/presets/verbose.json) — expanded previews, larger body cap, args on multi-tool rows.
 - [`minimal.json`](./config/presets/minimal.json) — bare frames, no args, no diff, no `✗`, empty thinking label.
 
-## What you get
+## What you get (Configuration Option)
 
 | Behavior | Default | How to change |
 | --- | --- | --- |
-| Working indicator | hidden | `showWorkingIndicator: true` |
 | Tool rows | collapsed | `toolsExpandedByDefault: true` |
 | Thinking | hidden behind `thinking` label | `hiddenThinkingLabel: "..."` |
 | Grouping mode | `proximity` (any tool call joins until text/thinking) | `groupingMode: "consecutive" \| "none"` |
@@ -70,10 +87,6 @@ bash, bash                        → Shell 2 commands (new group)
 
 `groupingMode: "consecutive"` restores the old "different tool name = new group" behavior. `"none"` makes every call its own row.
 
-## When a tool belongs to another extension
-
-Other extensions register their own tools with their own renderers. Their rows break proximity groups — a `read_files` from us followed by an `ide_find_symbol` from another ext renders as two rows, not a multi-tool group. Set `registerToolOverrides.<tool>: false` to let another extension own one of our built-ins.
-
 ## Batch tools
 
 The package registers four batch tools the model can call instead of repeating built-ins:
@@ -93,8 +106,10 @@ Each renders as one row; `ctrl+o` expands to per-item `✓`/`✗` status plus ag
 
 ## Compatibility
 
-- Pi `^0.79.0` (peer deps on `@earendil-works/pi-coding-agent`, `pi-ai`, `pi-tui`).
-- `pi-minimal-toolcall` only changes tool rendering. `setToolsExpanded`, `setWorkingVisible`, and `setHiddenThinkingLabel` are still driven by Pi (this package sets the resting state, not the toggle).
+- Pi `0.79.0+`. Peer dependencies: `@earendil-works/pi-coding-agent`, `pi-ai`, `pi-tui`, `typebox` (all `*` range — pi bundles these).
+- This package only changes tool-call rendering. We touch two pieces of global UI state on `session_start` (and only these two — we don't touch the working indicator, the prompt box, or anything else outside our scope):
+  - `ctx.ui.setToolsExpanded(config.toolsExpandedByDefault)` — the resting state of tool output (collapsed vs expanded). `ctrl+o` toggles it during a session.
+  - `ctx.ui.setHiddenThinkingLabel(config.hiddenThinkingLabel)` — the label on the thinking block.
 - Tools registered by other extensions render with their own renderer and break proximity groups.
 
 ## Development

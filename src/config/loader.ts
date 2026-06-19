@@ -163,10 +163,6 @@ export function normalizeConfig(raw: unknown): MinimalToolcallConfig {
 	const source = toRecord(raw);
 	return {
 		version: 1,
-		showWorkingIndicator: toBoolean(
-			source["showWorkingIndicator"],
-			DEFAULT_MINIMAL_TOOLCALL_CONFIG.showWorkingIndicator,
-		),
 		toolsExpandedByDefault: toBoolean(
 			source["toolsExpandedByDefault"],
 			DEFAULT_MINIMAL_TOOLCALL_CONFIG.toolsExpandedByDefault,

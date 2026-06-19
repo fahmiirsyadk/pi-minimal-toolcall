@@ -57,8 +57,7 @@ export interface MinimalToolcallConfig {
 	/** Schema version for forward-compat migrations. Bumped on
 	 *  breaking changes to the config shape. */
 	version: 1;
-	// --- Calm UI defaults (consumed by plan 002) -----------------------
-	showWorkingIndicator: boolean;
+	// --- Tool-call scope only (not global UI state) -----------------
 	toolsExpandedByDefault: boolean;
 	hiddenThinkingLabel: string;
 	// --- Tool ownership (consumed by plan 002) -------------------------
@@ -87,8 +86,8 @@ export interface MinimalToolcallConfig {
  */
 export const DEFAULT_MINIMAL_TOOLCALL_CONFIG: MinimalToolcallConfig = {
 	version: 1,
-	// Calm UI defaults — match today's hardcoded behavior.
-	showWorkingIndicator: false,
+	// Tool-call-scope defaults. Working indicator is global UI
+	// state, not ours — we don't touch it.
 	toolsExpandedByDefault: false,
 	hiddenThinkingLabel: "thinking",
 	// All seven built-in tools are overridden by default. Per-tool

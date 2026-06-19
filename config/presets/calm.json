@@ -1,7 +1,6 @@
 {
 	"_comment": "calm preset — matches the shipped defaults. Copy to ~/.pi/agent/extensions/pi-minimal-toolcall/config.json (or $PI_CODING_AGENT_DIR/extensions/pi-minimal-toolcall/config.json) and /reload to apply.",
 	"version": 1,
-	"showWorkingIndicator": false,
 	"toolsExpandedByDefault": false,
 	"hiddenThinkingLabel": "thinking",
 	"registerToolOverrides": {

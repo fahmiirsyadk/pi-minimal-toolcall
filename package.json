@@ -1,6 +1,6 @@
 {
 	"name": "@whitespace/pi-minimal-toolcall",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Calm tool-call rendering for Pi: one row per group of consecutive tool calls, multi-tool groups joined with `&`, relative paths, syntax-highlighted write expand, full per-package config.",
 	"type": "module",
 	"license": "MIT",

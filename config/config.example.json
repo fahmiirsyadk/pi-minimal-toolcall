@@ -1,8 +1,7 @@
 {
 	"_comment_top": "Starter config for @whitespace/pi-minimal-toolcall. Copy to ~/.pi/agent/extensions/pi-minimal-toolcall/config.json (or $PI_CODING_AGENT_DIR/extensions/pi-minimal-toolcall/config.json) and edit. Keys prefixed with `_` are ignored by the loader.",
 	"version": 1,
-	"_comment_calm": "Calm UI defaults — match the package's pre-config hardcoded behavior. Toggle these to taste; changes take effect on the next /reload.",
-	"showWorkingIndicator": false,
+	"_comment_calm": "Tool-call-scope defaults. Toggle to taste; changes take effect on the next /reload.",
 	"toolsExpandedByDefault": false,
 	"hiddenThinkingLabel": "thinking",
 	"_comment_ownership": "Per-builtin tool ownership flags. Set any to false to let another extension own that tool instead. Built-in names: read, grep, find, ls, bash, edit, write.",

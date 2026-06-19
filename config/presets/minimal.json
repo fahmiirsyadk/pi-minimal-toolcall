@@ -1,7 +1,6 @@
 {
 	"_comment": "minimal preset — bare frames, no args, no diff, no error mark. /reload to apply.",
 	"version": 1,
-	"showWorkingIndicator": false,
 	"toolsExpandedByDefault": false,
 	"hiddenThinkingLabel": "",
 	"registerToolOverrides": {

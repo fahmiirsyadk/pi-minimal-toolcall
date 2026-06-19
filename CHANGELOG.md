@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1
+
+Drop the `setWorkingVisible` override. The working indicator is
+global UI state, not in the tool-call scope. The package no longer
+touches it; whatever Pi's default is wins.
+
+### Removed
+
+- `showWorkingIndicator` config field. The loader no longer
+  recognizes it (drops it on normalize). `setWorkingVisible` is
+  no longer called from `index.ts`. The "What you get" table in
+  the README no longer lists it. The example config and the three
+  preset JSONs are updated to match.
+
 ## 0.2.0
 
 Dependency diet + drop the direct command surface. Behavior is

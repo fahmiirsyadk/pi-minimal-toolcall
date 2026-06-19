@@ -92,7 +92,6 @@ export default function (pi: ExtensionAPI) {
 		if (config.debug) {
 			debugLog("session", "session_start", {
 				sessionId,
-				showWorkingIndicator: config.showWorkingIndicator,
 				toolsExpandedByDefault: config.toolsExpandedByDefault,
 				groupingMode: config.groupingMode,
 				customToolsEnabled: Object.entries(config.customToolOverrides)
@@ -102,7 +101,6 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (ctx.hasUI) {
-			ctx.ui.setWorkingVisible(config.showWorkingIndicator);
 			ctx.ui.setToolsExpanded(config.toolsExpandedByDefault);
 			ctx.ui.setHiddenThinkingLabel(config.hiddenThinkingLabel);
 			if (error) {

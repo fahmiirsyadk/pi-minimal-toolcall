@@ -46,7 +46,6 @@ test("normalizeConfig: empty object → defaults", () => {
 test("normalizeConfig: full valid object → returned deep-equal to input", () => {
 	const input = {
 		version: 1,
-		showWorkingIndicator: true,
 		toolsExpandedByDefault: true,
 		hiddenThinkingLabel: "pondering",
 		registerToolOverrides: {
@@ -175,9 +174,9 @@ test("normalizeConfig: _comment* keys are dropped", () => {
 	const out = normalizeConfig({
 		_comment_top: "ignored",
 		_comment_other: "also ignored",
-		showWorkingIndicator: true,
+		toolsExpandedByDefault: true,
 	});
-	assert.equal(out.showWorkingIndicator, true);
+	assert.equal(out.toolsExpandedByDefault, true);
 	assert.equal(
 		(out as unknown as Record<string, unknown>)["_comment_top"],
 		undefined,
@@ -212,11 +211,11 @@ test("loadConfig: valid file → normalized config", () => {
 	const path = join(dir, "config.json");
 	writeFileSync(
 		path,
-		JSON.stringify({ showWorkingIndicator: true, groupingMode: "none" }),
+		JSON.stringify({ toolsExpandedByDefault: true, groupingMode: "none" }),
 		"utf-8",
 	);
 	const result = loadConfig(path);
-	assert.equal(result.config.showWorkingIndicator, true);
+	assert.equal(result.config.toolsExpandedByDefault, true);
 	assert.equal(result.config.groupingMode, "none");
 	assert.equal(result.error, undefined);
 	rmSync(dir, { recursive: true, force: true });
@@ -325,8 +324,8 @@ test("saveConfig: example file round-trips to defaults", async () => {
 	// (the example is the default + `_comment*` keys).
 	assert.equal(normalized.version, DEFAULT_MINIMAL_TOOLCALL_CONFIG.version);
 	assert.equal(
-		normalized.showWorkingIndicator,
-		DEFAULT_MINIMAL_TOOLCALL_CONFIG.showWorkingIndicator,
+		normalized.toolsExpandedByDefault,
+		DEFAULT_MINIMAL_TOOLCALL_CONFIG.toolsExpandedByDefault,
 	);
 	assert.equal(
 		normalized.toolsExpandedByDefault,
