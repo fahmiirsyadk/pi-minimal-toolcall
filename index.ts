@@ -1,5 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerBatchTools } from "./src/batch-tools.js";
+import {
+	loadConfig,
+	type MinimalToolcallConfig,
+	runMinimalToolcallCommand,
+} from "./src/config/index.js";
 import { createGroupingSession, type GroupingSession } from "./src/grouping.js";
 import {
 	clearAllSpinners,
@@ -12,16 +17,35 @@ import {
 	overrideWrite,
 } from "./src/tool-overrides.js";
 
-const HIDDEN_THINKING_LABEL = "thinking";
+/** Map of every built-in tool name to its override factory. Adding a
+ *  new built-in override means updating this map AND the
+ *  `TOOL_OVERRIDE_NAMES` tuple in `src/config/types.ts` so
+ *  `registerToolOverrides` coverage and the per-tool config flag
+ *  stay in lockstep. */
+const TOOL_OVERRIDE_FACTORIES = {
+	bash: overrideBash,
+	read: overrideRead,
+	edit: overrideEdit,
+	write: overrideWrite,
+	grep: overrideGrep,
+	find: overrideFind,
+	ls: overrideLs,
+} as const;
 
-function registerOverrides(pi: ExtensionAPI, grouping: GroupingSession): void {
-	pi.registerTool(overrideBash(grouping));
-	pi.registerTool(overrideRead(grouping));
-	pi.registerTool(overrideEdit(grouping));
-	pi.registerTool(overrideWrite(grouping));
-	pi.registerTool(overrideGrep(grouping));
-	pi.registerTool(overrideFind(grouping));
-	pi.registerTool(overrideLs(grouping));
+function registerOverrides(
+	pi: ExtensionAPI,
+	grouping: GroupingSession,
+	config: MinimalToolcallConfig,
+): void {
+	for (const [toolName, factory] of Object.entries(TOOL_OVERRIDE_FACTORIES)) {
+		if (
+			config.registerToolOverrides[
+				toolName as keyof typeof config.registerToolOverrides
+			]
+		) {
+			pi.registerTool(factory(grouping));
+		}
+	}
 }
 
 export default function (pi: ExtensionAPI) {
@@ -30,28 +54,58 @@ export default function (pi: ExtensionAPI) {
 	// would route events from each session to its own `GroupingSession`
 	// without leaking group state.
 	const groupings = new Map<string, GroupingSession>();
+	// Per-session config, populated at `session_start` and consumed by
+	// the override registration + the event handlers. Same key space
+	// as `groupings`; the two are deleted together at `session_shutdown`.
+	const configs = new Map<string, MinimalToolcallConfig>();
+
+	// Register the `/minimal-toolcall` command at the top level of the
+	// default export so it's available the first time the user opens
+	// the TUI. The handler is a thin wrapper around the pure
+	// `runMinimalToolcallCommand` (in `src/config/command.ts`); the
+	// wrapper exists only to bridge `ctx.ui.notify` to the command's
+	// `CommandNotify` shape.
+	pi.registerCommand("minimal-toolcall", {
+		description:
+			"Show or reset @whitespace/pi-minimal-toolcall config. Subcommands: show, reset, preset <calm|verbose|minimal>. Changes take effect on the next /reload.",
+		handler: async (args, ctx) => {
+			const notify = ctx.hasUI
+				? (message: string, kind: "info" | "warning" | "error") =>
+						ctx.ui.notify(message, kind)
+				: undefined;
+			runMinimalToolcallCommand(args, notify);
+		},
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		// Calm defaults. The working indicator is suppressed, tool
-		// blocks are collapsed (the per-group renderer draws one line;
-		// `ctrl+o` expands inline via the native `setToolsExpanded`
-		// mechanism), and thinking blocks are hidden behind a minimal
-		// label. Users can still expand with `ctrl+o` / `ctrl+t`; we
-		// only change the resting state.
+		// Load the config (fingerprint-cached; tolerates a missing file
+		// by returning the default). On parse error, fall back to the
+		// default and surface the error via ctx.ui.notify.
+		const { config, error } = loadConfig();
+		const sessionId = ctx.sessionManager.getSessionId();
+		configs.set(sessionId, config);
+
 		if (ctx.hasUI) {
-			ctx.ui.setWorkingVisible(false);
-			ctx.ui.setToolsExpanded(false);
-			ctx.ui.setHiddenThinkingLabel(HIDDEN_THINKING_LABEL);
+			ctx.ui.setWorkingVisible(config.showWorkingIndicator);
+			ctx.ui.setToolsExpanded(config.toolsExpandedByDefault);
+			ctx.ui.setHiddenThinkingLabel(config.hiddenThinkingLabel);
+			if (error) {
+				ctx.ui.notify(`pi-minimal-toolcall: ${error}`, "warning");
+			}
 		}
 
 		const grouping = createGroupingSession();
-		groupings.set(ctx.sessionManager.getSessionId(), grouping);
-		registerOverrides(pi, grouping);
-		registerBatchTools(pi);
+		groupings.set(sessionId, grouping);
+		registerOverrides(pi, grouping, config);
+		if (config.batchToolsEnabled) {
+			registerBatchTools(pi);
+		}
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		groupings.delete(ctx.sessionManager.getSessionId());
+		const sessionId = ctx.sessionManager.getSessionId();
+		configs.delete(sessionId);
+		groupings.delete(sessionId);
 		// Release any spinner intervals still alive from in-flight calls
 		// that never produced a result (e.g. aborted mid-execution).
 		clearAllSpinners();
@@ -79,7 +133,9 @@ export default function (pi: ExtensionAPI) {
 	// not absorb the next prompt's first `bash` into the same group
 	// (e.g. `shell 8` then `shell 9` across the user's turn). The
 	// previous group's last entry keeps its summary; the next tool
-	// call starts a fresh group with a count of 1.
+	// call starts a fresh group with a count of 1. Always on,
+	// orthogonal to `groupingMode` (which controls text/thinking
+	// freezes; this is prompt boundaries).
 	pi.on("agent_start", (_event, ctx) => {
 		const grouping = groupings.get(ctx.sessionManager.getSessionId());
 		grouping?.freezeCurrentGroup();
@@ -97,10 +153,16 @@ export default function (pi: ExtensionAPI) {
 	// `Shell` across the thinking. A turn that emits only tool calls (no
 	// text/thinking) fires no such event, so its tools join the previous
 	// group — matching the "no text or thinking in between → group" rule.
+	// Gated on `groupingMode === "proximity"`: the other two modes
+	// (`"consecutive"`, `"none"`) skip this freeze and rely on the
+	// grouping session's internal policy.
 	pi.on("message_update", (event, ctx) => {
 		const t = event.assistantMessageEvent?.type;
 		if (t !== "text_start" && t !== "thinking_start") return;
-		const grouping = groupings.get(ctx.sessionManager.getSessionId());
+		const sessionId = ctx.sessionManager.getSessionId();
+		const config = configs.get(sessionId);
+		if (config?.groupingMode !== "proximity") return;
+		const grouping = groupings.get(sessionId);
 		grouping?.freezeCurrentGroup();
 	});
 }

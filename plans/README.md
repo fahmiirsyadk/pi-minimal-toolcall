@@ -10,7 +10,7 @@ update your row when done.
 | Plan | Title | Priority | Effort | Risk | Depends on | Status |
 |------|-------|----------|--------|------|------------|--------|
 | 001  | Config foundation: types, loader, defaults, example file | P1 | M | LOW | — | DONE |
-| 002  | Calm defaults + per-tool ownership + `/minimal-toolcall` command | P1 | M | MED | 001 | TODO |
+| 002  | Calm defaults + per-tool ownership + `/minimal-toolcall` command | P1 | M | MED | 001 | DONE |
 | 003  | Rendering knobs (grouping, spinner, expand) + presets | P2 | L | MED | 001 | TODO |
 | 004  | Custom tool overrides + debug logging + reload-safe disposal | P3 | L | MED | 001, 003 | TODO |
 

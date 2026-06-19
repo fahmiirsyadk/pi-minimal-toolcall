@@ -1,3 +1,4 @@
+export { type CommandNotify, runMinimalToolcallCommand } from "./command.js";
 export {
 	type ConfigLoadResult,
 	type ConfigSaveResult,
@@ -6,6 +7,7 @@ export {
 	normalizeConfig,
 	saveConfig,
 } from "./loader.js";
+export { detectPreset, getPresetConfig, parsePreset } from "./presets.js";
 export {
 	CUSTOM_TOOL_OUTPUT_MODES,
 	type CustomToolOutputMode,
