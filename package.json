@@ -18,7 +18,7 @@
 		"typecheck": "tsgo --noEmit",
 		"lint": "biome check .",
 		"format": "biome check --write .",
-		"test": "tsx --test tests/*.test.ts",
+		"test": "tsx --test tests/*.test.ts src/**/*.test.ts",
 		"pack:dry": "npm pack --dry-run"
 	},
 	"peerDependencies": {
