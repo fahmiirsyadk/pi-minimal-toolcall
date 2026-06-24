@@ -11,13 +11,17 @@ import {
 	createReadToolDefinition,
 	keyHint,
 } from "@earendil-works/pi-coding-agent";
+import { getArg } from "./args.js";
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { BODY_PREFIX, LEFT_PADDING } from "./grouping.js";
 import {
+	getSessionConfig,
+	getSessionIdForToolCall,
+} from "./spinner-state.js";
+import {
 	clearCallText,
 	clearSpinner,
-	EXPANDED_BODY_MAX_LINES,
 	extractOutput,
 	getOrCreateCallText,
 	getSpinnerFrame,
@@ -112,6 +116,18 @@ function getOrCreatePartialText(
 	return text;
 }
 
+/** Resolve the per-session `expandedBodyMaxLines`. Falls back to the
+ * package default if the tool call's session is unknown (e.g. tests
+ * that don't route through `registerToolCallSession`). */
+function expandedBodyMaxLinesFor(
+	toolCallId: string | undefined,
+): number {
+	const sessionId = toolCallId
+		? getSessionIdForToolCall(toolCallId)
+		: undefined;
+	return getSessionConfig(sessionId).expandedBodyMaxLines;
+}
+
 /** Render the batch tool's call line on a persistent `Text` stashed in
  * `context.state`, so `renderResult` can clear it (otherwise the TUI
  * shows both the spinner row and the summary row). The line mimics the
@@ -143,7 +159,7 @@ function renderBatch(
 	kind: string,
 	details: BatchDetails,
 	output: string,
-	options: { expanded: boolean },
+	options: { expanded: boolean; expandedBodyMaxLines: number },
 	theme: Theme,
 ): Component {
 	const count = details.results.length;
@@ -183,16 +199,16 @@ function renderBatch(
 		);
 	}
 	const bodyLines = output.length > 0 ? output.split("\n") : [];
-	const truncated = bodyLines.length > EXPANDED_BODY_MAX_LINES;
-	// Tail (last N), matching the main overrides' expanded view.
-	const shown = truncated
-		? bodyLines.slice(-EXPANDED_BODY_MAX_LINES)
-		: bodyLines;
+	const cap = options.expandedBodyMaxLines;
+	// Guard `cap === 0`: `slice(-0)` returns the whole array, which
+	// would render everything *plus* a bogus truncation footer. Treat
+	// 0 as "show nothing".
+	const shown = cap <= 0 ? [] : bodyLines.length > cap ? bodyLines.slice(-cap) : bodyLines;
 	for (const line of shown) {
 		container.addChild(new Text(`${BODY_PREFIX}${line}`, 0, 0));
 	}
-	if (truncated) {
-		const remaining = bodyLines.length - EXPANDED_BODY_MAX_LINES;
+	if (bodyLines.length > shown.length) {
+		const remaining = bodyLines.length - shown.length;
 		container.addChild(
 			new Text(
 				`${BODY_PREFIX}${theme.fg(
@@ -275,7 +291,8 @@ function readFilesTool(): AnyToolDef {
 			return finalize("read", results, sections);
 		},
 		renderCall(args, theme, context) {
-			const count = (args as { paths?: string[] })?.paths?.length ?? 0;
+			const paths = getArg(args, "paths") as string[] | undefined;
+			const count = paths?.length ?? 0;
 			return renderBatchCall("Read", BATCH_NOUN.read, count, theme, context);
 		},
 		renderResult(result, options, theme, context) {
@@ -293,7 +310,10 @@ function readFilesTool(): AnyToolDef {
 			const output = extractOutput(
 				result as { content: Array<{ type: string; text?: string }> },
 			);
-			return renderBatch("Read", details, output, options, theme);
+			return renderBatch("Read", details, output, {
+				expanded: options.expanded,
+				expandedBodyMaxLines: expandedBodyMaxLinesFor(context?.toolCallId),
+			}, theme);
 		},
 	};
 }
@@ -341,7 +361,8 @@ function editFilesTool(): AnyToolDef {
 			return finalize("edit", results, sections);
 		},
 		renderCall(args, theme, context) {
-			const count = (args as { edits?: unknown[] })?.edits?.length ?? 0;
+			const edits = getArg(args, "edits") as unknown[] | undefined;
+			const count = edits?.length ?? 0;
 			return renderBatchCall("Edit", BATCH_NOUN.edit, count, theme, context);
 		},
 		renderResult(result, options, theme, context) {
@@ -355,7 +376,10 @@ function editFilesTool(): AnyToolDef {
 			const output = extractOutput(
 				result as { content: Array<{ type: string; text?: string }> },
 			);
-			return renderBatch("Edit", details, output, options, theme);
+			return renderBatch("Edit", details, output, {
+				expanded: options.expanded,
+				expandedBodyMaxLines: expandedBodyMaxLinesFor(context?.toolCallId),
+			}, theme);
 		},
 	};
 }
@@ -418,7 +442,8 @@ function grepFilesTool(): AnyToolDef {
 			return finalize("grep", results, sections);
 		},
 		renderCall(args, theme, context) {
-			const count = (args as { queries?: unknown[] })?.queries?.length ?? 0;
+			const queries = getArg(args, "queries") as unknown[] | undefined;
+			const count = queries?.length ?? 0;
 			return renderBatchCall("Grep", BATCH_NOUN.grep, count, theme, context);
 		},
 		renderResult(result, options, theme, context) {
@@ -432,7 +457,10 @@ function grepFilesTool(): AnyToolDef {
 			const output = extractOutput(
 				result as { content: Array<{ type: string; text?: string }> },
 			);
-			return renderBatch("Grep", details, output, options, theme);
+			return renderBatch("Grep", details, output, {
+				expanded: options.expanded,
+				expandedBodyMaxLines: expandedBodyMaxLinesFor(context?.toolCallId),
+			}, theme);
 		},
 	};
 }
@@ -487,7 +515,8 @@ function findFilesTool(): AnyToolDef {
 			return finalize("find", results, sections);
 		},
 		renderCall(args, theme, context) {
-			const count = (args as { queries?: unknown[] })?.queries?.length ?? 0;
+			const queries = getArg(args, "queries") as unknown[] | undefined;
+			const count = queries?.length ?? 0;
 			return renderBatchCall("Find", BATCH_NOUN.find, count, theme, context);
 		},
 		renderResult(result, options, theme, context) {
@@ -501,7 +530,10 @@ function findFilesTool(): AnyToolDef {
 			const output = extractOutput(
 				result as { content: Array<{ type: string; text?: string }> },
 			);
-			return renderBatch("Find", details, output, options, theme);
+			return renderBatch("Find", details, output, {
+				expanded: options.expanded,
+				expandedBodyMaxLines: expandedBodyMaxLinesFor(context?.toolCallId),
+			}, theme);
 		},
 	};
 }

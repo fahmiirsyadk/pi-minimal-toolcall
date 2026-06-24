@@ -129,6 +129,14 @@ function normalizeCustomToolOverrideEntry(
 	};
 }
 
+/** Maximum number of `customToolOverrides` entries. A user is
+ *  unlikely to opt in to 256 distinct custom tools; the cap guards
+ *  against accidental JSON imports with thousands of entries. Beyond
+ *  the cap, further entries are silently dropped during normalization
+ *  (their config is preserved on disk; only the runtime map is
+ *  bounded). */
+export const MAX_CUSTOM_TOOL_OVERRIDES = 256;
+
 function normalizeCustomToolOverrides(
 	rawOverrides: unknown,
 ): Record<string, CustomToolOverrideConfig> {
@@ -144,6 +152,7 @@ function normalizeCustomToolOverrides(
 		const normalized = normalizeCustomToolOverrideEntry(rawEntry);
 		if (!normalized) continue;
 		overrides[toolName] = normalized;
+		if (Object.keys(overrides).length >= MAX_CUSTOM_TOOL_OVERRIDES) break;
 	}
 	return overrides;
 }
@@ -240,7 +249,14 @@ function cloneLoadResult(result: ConfigLoadResult): ConfigLoadResult {
 function getFingerprint(configFile: string): string {
 	try {
 		const stats = statSync(configFile);
-		return `${stats.mtimeMs}:${stats.size}`;
+		// Include the inode when present so two writes within the
+		// filesystem's mtime resolution still produce distinct
+		// fingerprints. Most filesystems expose `ino`; some (notably
+		// Windows) do not — fall back to mtime+size.
+		const ino = (stats as { ino?: number }).ino;
+		return ino !== undefined
+			? `${stats.mtimeMs}:${stats.size}:${ino}`
+			: `${stats.mtimeMs}:${stats.size}`;
 	} catch {
 		return "missing";
 	}
@@ -265,10 +281,12 @@ export interface ConfigSaveResult {
 }
 
 /**
- * Load + normalize the config. Caches by `(path, mtimeMs, size)`
+ * Load + normalize the config. Caches by `(path, mtimeMs, size, ino)`
  * fingerprint so repeated `session_start` calls don't re-read the
- * file. Returns defaults if the file is missing; returns defaults
- * + an error message if the file is present but malformed.
+ * file. The inode prevents a stale read when two writes land within
+ * the filesystem's mtime resolution. Returns defaults if the file
+ * is missing; returns defaults + an error message if the file is
+ * present but malformed.
  */
 export function loadConfig(configFile: string = CONFIG_FILE): ConfigLoadResult {
 	const fingerprint = getFingerprint(configFile);

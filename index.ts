@@ -3,17 +3,20 @@ import { registerBatchTools } from "./src/batch-tools.js";
 import {
 	debugLog,
 	disposeAll,
+	formatDoctorReport,
+	getConfigPath,
 	isDebugEnabled,
 	loadConfig,
 	type MinimalToolcallConfig,
 	registerDisposable,
+	runDoctor,
 	setDebugEnabled,
 } from "./src/config/index.js";
 import { createGroupingSession, type GroupingSession } from "./src/grouping.js";
 import {
 	clearSessionSpinnerOptions,
 	registerToolCallSession,
-	setSessionSpinnerOptions,
+	setSessionConfig,
 } from "./src/spinner-state.js";
 import {
 	clearAllSpinners,
@@ -68,18 +71,12 @@ export default function (pi: ExtensionAPI) {
 	// as `groupings`; the two are deleted together at `session_shutdown`.
 	const configs = new Map<string, MinimalToolcallConfig>();
 
-	// TODO(plan-004): custom-tool decoration deferred. The SDK's
-	// `pi.getAllTools()` returns `ToolInfo` (name + description +
-	// parameters), not the full `ToolDefinition` (no `execute` /
-	// `label`). Without the full definition, we cannot wrap a
-	// non-builtin tool's `execute` for decoration. The decorator
-	// (`src/config/custom-tools.ts`) and its tests are kept for a
-	// future plan that adds an SDK surface to fetch the full
-	// definition, or for the `customToolOverrides` config to be
-	// re-purposed for a different capability (e.g. per-tool renderer
-	// hooks) once the SDK supports it. The `customToolOverrides`
-	// config field is loaded and normalized correctly (so users
-	// editing it now won't lose their config when the SDK catches up).
+	// `customToolOverrides` is parsed + normalized but does not yet
+	// affect rendering: the SDK's `pi.getAllTools()` returns
+	// `ToolInfo` (metadata only), not the full `ToolDefinition`, so
+	// wrapping a non-builtin tool's `execute` is not possible from
+	// the extension layer. The field is preserved on disk so user
+	// config is not lost when SDK support arrives.
 
 	pi.on("session_start", async (_event, ctx) => {
 		// Load the config (fingerprint-cached; tolerates a missing file
@@ -94,9 +91,8 @@ export default function (pi: ExtensionAPI) {
 				sessionId,
 				toolsExpandedByDefault: config.toolsExpandedByDefault,
 				groupingMode: config.groupingMode,
-				customToolsEnabled: Object.entries(config.customToolOverrides)
-					.filter(([, v]) => v.enabled)
-					.map(([k]) => k),
+				customToolOverrides:
+					Object.keys(config.customToolOverrides).length || undefined,
 			});
 		}
 
@@ -113,7 +109,7 @@ export default function (pi: ExtensionAPI) {
 				? { splitOnDifferentTool: true }
 				: { splitOnDifferentTool: false },
 		);
-		setSessionSpinnerOptions(sessionId, config);
+		setSessionConfig(sessionId, config);
 		groupings.set(sessionId, grouping);
 		// Track per-session state in the disposable registry so a
 		// `/reload` cleans up after a `session_shutdown`. The grouping
@@ -135,12 +131,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		const sessionId = ctx.sessionManager.getSessionId();
 		debugLog("session", "session_shutdown", { sessionId });
-		// Run the disposable registry: clears per-session state and
-		// spinner-state entries. Note: the `pi.on(...)` event handlers
-		// and the `pi.registerCommand` call are persistent (the SDK has
-		// no public unregister). They get re-bound on the next reload
-		// via the extension's top-level re-invocation; the registry
-		// is best-effort for what it can clean up.
+		// Run the disposable registry: clears per-session state
+		// (configs, groupings, session spinner options). Note: the
+		// `pi.on(...)` event handlers and `pi.registerTool` calls are
+		// not removable — the SDK tears down the entire
+		// `ExtensionRunner` on reload and rebuilds it from the
+		// extension's top-level re-invocation, so no listener or
+		// tool-registration leak accumulates. The registry is
+		// best-effort cleanup for the per-session Maps we own.
 		const { disposed, errors } = disposeAll();
 		if (errors.length > 0 && isDebugEnabled()) {
 			for (const { label, error } of errors) {
@@ -153,9 +151,6 @@ export default function (pi: ExtensionAPI) {
 				errors: errors.length,
 			});
 		}
-		configs.delete(sessionId);
-		groupings.delete(sessionId);
-		clearSessionSpinnerOptions(sessionId);
 		// Release any spinner intervals still alive from in-flight calls
 		// that never produced a result (e.g. aborted mid-execution).
 		clearAllSpinners();
@@ -224,5 +219,27 @@ export default function (pi: ExtensionAPI) {
 		if (config?.groupingMode !== "proximity") return;
 		const grouping = groupings.get(sessionId);
 		grouping?.freezeCurrentGroup();
+	});
+
+	// Read-only diagnostic command. Prints the resolved config and any
+	// likely footguns. The user invoked `/minimal-toolcall` before
+	// 0.2.0; that command was removed in 0.2.0. This is the
+	// replacement: shows the effective config without exposing a way
+	// to mutate it (mutations go through the config file + `/reload`).
+	pi.registerCommand("minimal-toolcall-doctor", {
+		description:
+			"Print the resolved pi-minimal-toolcall config and any likely footguns.",
+		handler: async (_args, ctx) => {
+			const report = runDoctor(getConfigPath());
+			const text = formatDoctorReport(report);
+			if (ctx.hasUI) {
+				ctx.ui.notify(text, "info");
+			} else {
+				// Non-interactive modes (print, JSON, RPC) get a
+				// console fallback so the command still does something
+				// useful.
+				console.log(text);
+			}
+		},
 	});
 }

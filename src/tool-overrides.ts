@@ -1,3 +1,11 @@
+// NOTE: circular import with `./grouping.js` (grouping.ts imports
+// `argSummaryFor` / `extractOutput` / `friendlyLabel` from here, and
+// this file imports `BODY_PREFIX` / `CurrentGroup` / `formatDiffSuffix`
+// / `GroupingSession` / `LEFT_PADDING` / `renderGroupTitleCore` from
+// there). All uses are inside function bodies, so the cycle is safe
+// under ESM. Keep it that way — a top-level use would crash at module
+// load. Same for the cycle through `./tool-display.js`.
+
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -23,9 +31,10 @@ import {
 	formatDiffSuffix,
 	type GroupingSession,
 	LEFT_PADDING,
-	nounFor,
 	renderGroupTitleCore,
 } from "./grouping.js";
+import { getStr } from "./args.js";
+import { friendlyLabel, nounFor } from "./tool-display.js";
 import {
 	getSessionIdForToolCall,
 	getSessionSpinnerOptions,
@@ -35,12 +44,13 @@ import {
 type AnyToolDef = ToolDefinition<any, any, any>;
 type ToolFactory = (cwd: string) => AnyToolDef;
 
-/** Max body lines shown inline when expanded. Larger output shows a footer
- * noting how many earlier lines were not stored. */
-export const EXPANDED_BODY_MAX_LINES = 50;
-
 interface SpinnerState {
 	frame: number;
+	/** Cadence at which the interval is currently scheduled. Re-read
+	 * on every tick so a mid-session reload (or a config change that
+	 * updates the session's options) self-heals without dropping the
+	 * spinner. */
+	intervalMs: number;
 	invalidate: (() => void) | undefined;
 	interval: ReturnType<typeof setInterval>;
 }
@@ -67,14 +77,23 @@ export function getSpinnerFrame(
 	}
 	const state: SpinnerState = {
 		frame: 0,
+		intervalMs,
 		invalidate,
 		interval: undefined as unknown as ReturnType<typeof setInterval>,
 	};
-	state.interval = setInterval(() => {
+	const tick = () => {
 		const s = spinnerStates.get(toolCallId);
 		if (!s) return;
 		const sid = getSessionIdForToolCall(toolCallId);
 		const opts = getSessionSpinnerOptions(sid);
+		// Self-heal: if the session's `spinnerIntervalMs` changed
+		// (config edit + reload), reschedule the interval at the
+		// new cadence instead of running the old one forever.
+		if (opts.intervalMs !== s.intervalMs) {
+			s.intervalMs = opts.intervalMs;
+			clearInterval(s.interval);
+			s.interval = setInterval(tick, s.intervalMs);
+		}
 		s.frame = (s.frame + 1) % opts.frames.length;
 		try {
 			s.invalidate?.();
@@ -82,7 +101,8 @@ export function getSpinnerFrame(
 			// component may have been destroyed; the next renderResult
 			// or session_shutdown will clean up
 		}
-	}, intervalMs);
+	};
+	state.interval = setInterval(tick, intervalMs);
 	spinnerStates.set(toolCallId, state);
 	return frames[state.frame] ?? "";
 }
@@ -170,9 +190,8 @@ function captureWriteMeta(
 	args: unknown,
 	cwd: string,
 ): WriteExecutionMeta | undefined {
-	if (!args || typeof args !== "object") return undefined;
-	const rawPath = (args as Record<string, unknown>)["path"];
-	if (typeof rawPath !== "string" || !rawPath) return undefined;
+	const rawPath = getStr(args, "path");
+	if (!rawPath) return undefined;
 	const absolutePath = isAbsolute(rawPath) ? rawPath : join(cwd, rawPath);
 	try {
 		const previousContent = readFileSync(absolutePath, "utf-8");
@@ -578,10 +597,8 @@ function renderWriteContentLines(
 	args: unknown,
 	theme: Parameters<NonNullable<AnyToolDef["renderResult"]>>[2],
 ): Array<{ prefix: string; text: string }> {
-	if (!args || typeof args !== "object") return [];
-	const a = args as Record<string, unknown>;
-	const rawPath = String(a["path"] ?? a["file_path"] ?? "");
-	const content = typeof a["content"] === "string" ? a["content"] : "";
+	const rawPath = getStr(args, "path") || getStr(args, "file_path");
+	const content = getStr(args, "content");
 	if (content.length === 0) return [];
 	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
 	// `normalizeDisplayText` just strips CR; replicate inline to avoid
@@ -635,12 +652,12 @@ function renderPatchLines(
  * <duration>`) followed by that entry's text output AND its diff/patch
  * (for `edit` entries, the patch from `details.patch` — the text alone
  * is just "Successfully replaced N block(s)" and misses the actual
- * diff). The combined body is tail-capped at `EXPANDED_BODY_MAX_LINES
- * * 4` lines so a huge group does not flood the TUI; a `… N earlier
- * lines not shown` footer notes the truncation. Reusing one
- * `Container` across `renderResult` calls lets the TUI diff the update
- * against the previously rendered content rather than seeing a
- * brand-new component each call. */
+ * diff). The combined body is tail-capped at
+ * `config.expandedBodyMaxLines` (default 200) so a huge group does
+ * not flood the TUI; a `… N earlier lines not shown` footer notes the
+ * truncation. Reusing one `Container` across `renderResult` calls
+ * lets the TUI diff the update against the previously rendered
+ * content rather than seeing a brand-new component each call. */
 function populateExpandedGroup(
 	container: Component,
 	args: ExpandedGroupArgs,
@@ -738,15 +755,18 @@ function populateExpandedGroup(
 	// `EXPANDED_BODY_MAX_LINES * 4`, which had the same numeric value).
 	const cap = config.expandedBodyMaxLines;
 	const total = items.length;
-	const showItems = total > cap ? items.slice(-cap) : items;
+	// Guard `cap === 0`: `slice(-0)` is `slice(0)` and returns the
+	// whole array, which would render everything *plus* a bogus
+	// "N earlier lines not shown" footer. Treat 0 as "show nothing".
+	const showItems = cap <= 0 ? [] : total > cap ? items.slice(-cap) : items;
 
 	const c = container as Container;
 	c.clear();
 	for (const item of showItems) {
 		c.addChild(new Text(`${item.prefix}${item.text}`, 0, 0));
 	}
-	if (total > cap) {
-		const remaining = total - cap;
+	if (total > showItems.length) {
+		const remaining = total - showItems.length;
 		c.addChild(
 			new Text(
 				`${BODY_PREFIX}${theme.fg(
@@ -778,53 +798,29 @@ function populateExpandedGroup(
 	return container;
 }
 
-export function friendlyLabel(toolName: string): string {
-	if (toolName === "bash") return "Shell";
-	// Batch tools (this package's own) get the same friendly label as
-	// their single-call counterpart. The count + noun distinguish them
-	// in the rendered row; the expanded view's per-item ✓/✗ list
-	// makes the batch shape clear.
-	if (toolName === "read_files") return "Read";
-	if (toolName === "edit_files") return "Edit";
-	if (toolName === "grep_files") return "Grep";
-	if (toolName === "find_files") return "Find";
-	const map: Record<string, string> = {
-		read: "Read",
-		edit: "Edit",
-		write: "Write",
-		ls: "Ls",
-		grep: "Grep",
-		find: "Find",
-	};
-	return map[toolName] ?? toolName;
-}
-
 export function argSummaryFor(
 	toolName: string,
 	args: unknown,
 	cwd: string,
 ): string {
-	if (!args || typeof args !== "object") return "";
-	const a = args as Record<string, unknown>;
-	const get = (key: string): unknown => a[key];
 	// `file_path` is the Codex-style alias for `path` on the file tools
 	// (see the SDK's `formatReadCall` / `formatWriteCall` /
 	// `formatEditCall` in `dist/core/tools/*.js`, all of which read
 	// `args?.file_path ?? args?.path`). Accept both so the spinner
 	// summary stays correct for Codex-shaped invocations as well.
-	const getPath = (): string => String(get("path") ?? get("file_path") ?? "");
+	const pathValue = getStr(args, "path") || getStr(args, "file_path");
 	switch (toolName) {
 		case "bash":
-			return shortCommand(cwd, String(get("command") ?? ""));
+			return shortCommand(cwd, getStr(args, "command"));
 		case "read":
 		case "edit":
 		case "write":
-			return relPath(cwd, getPath());
+			return relPath(cwd, pathValue);
 		case "ls":
-			return relPath(cwd, getPath() || ".");
+			return relPath(cwd, pathValue || ".");
 		case "grep":
 		case "find":
-			return String(get("pattern") ?? "");
+			return getStr(args, "pattern");
 		default:
 			return "";
 	}

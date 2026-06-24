@@ -6,6 +6,12 @@ export {
 	setDebugPath,
 } from "./debug.js";
 export {
+	type DoctorDiagnostic,
+	type DoctorReport,
+	formatDoctorReport,
+	runDoctor,
+} from "./doctor.js";
+export {
 	disposableCount,
 	disposeAll,
 	registerDisposable,
@@ -15,6 +21,7 @@ export {
 	type ConfigSaveResult,
 	getConfigPath,
 	loadConfig,
+	MAX_CUSTOM_TOOL_OVERRIDES,
 	normalizeConfig,
 	saveConfig,
 } from "./loader.js";

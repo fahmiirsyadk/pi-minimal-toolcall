@@ -645,6 +645,30 @@ test("renderResult: expandedBodyMaxLines: 5 → body tail-capped at 5 (was 200)"
 	assert.match(text, /earlier lines not shown/);
 });
 
+test("renderResult: expandedBodyMaxLines: 0 → empty body + footer (no slice(-0) leak)", () => {
+	const g = createGroupingSession();
+	const def = overrideRead(g, {
+		...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+		expandedBodyMaxLines: 0,
+	});
+	startCall(g, "r1", "read", { path: `${CWD}/big.ts` });
+	const output = Array.from({ length: 10 }, (_, i) => `line${i}`).join("\n");
+	const comp = def.renderResult!(
+		makeResult(output),
+		{ expanded: true, isPartial: false },
+		passThroughTheme,
+		makeContext({ toolCallId: "r1", cwd: CWD, state: {} }),
+	);
+	const text = renderedText(comp);
+	// `slice(-0)` would have leaked all 10 body lines; assert none
+	// render and the footer notes the truncation. The footer count
+	// includes the title + per-entry header rows, so just check the
+	// pattern, not the exact number.
+	assert.ok(!text.includes("line0"), `expected no body lines in:\n${text}`);
+	assert.ok(!text.includes("line9"), `expected no body lines in:\n${text}`);
+	assert.match(text, /earlier lines not shown/);
+});
+
 test("renderResult: groupingMode: 'none' → every call is its own row (force-freeze per start)", () => {
 	// Construct the session with the consecutive flag (as index.ts does for
 	// "consecutive" mode) and rely on the test simulating the per-start

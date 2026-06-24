@@ -109,6 +109,23 @@ Three starter presets ship in [`config/presets/`](./config/presets) — copy the
 | Per-tool ownership | all 7 built-ins | `registerToolOverrides: { "read": false, ... }` |
 | Batch tools (`read_files`, `edit_files`, `grep_files`, `find_files`) | on | `batchToolsEnabled: false` |
 | Debug log | off | `debug: true` (writes to `<agent-dir>/.../debug/debug.log`) |
+| `customToolOverrides` | loaded + normalized; not yet rendered | (awaiting SDK support — see below) |
+
+### `customToolOverrides` (not yet wired)
+
+The `customToolOverrides` config field is parsed and normalized (built-in tool names are rejected, `_comment*` keys are dropped, booleans are coerced, invalid `outputMode` values fall back to `"summary"`, entries are capped at 256 to guard against accidental JSON imports). The SDK's public `pi.getAllTools()` API currently returns `ToolInfo` (name + description + parameters) only — not the full `ToolDefinition` (no `execute` / `renderCall` / `renderResult`) — so the package cannot wrap a non-builtin tool's `execute` from the extension layer. Your config is preserved on disk and will activate the moment the SDK exposes the full definition.
+
+## Doctor command
+
+`/minimal-toolcall-doctor` is a read-only diagnostic command. It prints the resolved config (loaded from disk or the shipped defaults) and flags likely footguns:
+
+- `spinnerIntervalMs < 50` (CPU peg)
+- `expandedBodyMaxLines ≤ 0` (collapses every expanded view)
+- All 7 built-in tools disabled (the package becomes a no-op)
+- `batchToolsEnabled: false` (the batch tools won't be registered)
+- Non-empty `customToolOverrides` (the field is parsed but doesn't yet affect rendering)
+
+The command replaces the dropped 0.2.0 `/minimal-toolcall` runtime. It does not mutate state — reloads and config changes go through the file + `/reload`.
 
 ## How grouping works
 

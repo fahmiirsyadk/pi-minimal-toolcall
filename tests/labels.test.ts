@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { nounFor } from "../src/grouping.ts";
-import { friendlyLabel } from "../src/tool-overrides.ts";
+import { test } from "node:test";
+import { friendlyLabel, nounFor } from "../src/tool-display.ts";
 
 test("friendlyLabel: bash → Shell", () => {
 	assert.equal(friendlyLabel("bash"), "Shell");

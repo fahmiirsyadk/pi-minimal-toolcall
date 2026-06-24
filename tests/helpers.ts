@@ -3,7 +3,14 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 // Initialize the singleton theme so keyHint() works in tests without a TTY.
+// `initTheme` is idempotent, so re-calling it from new test files is safe.
 initTheme();
+
+/** Re-initialize the theme from a `before()` hook when a test file does
+ *  not import this helper at module load. */
+export function ensureTestTheme(): void {
+	initTheme();
+}
 
 /** Pass-through theme: `fg`/`bold` return text unchanged so tests can assert
  * on plain strings. `keyHint` still uses the singleton theme (producing ANSI);

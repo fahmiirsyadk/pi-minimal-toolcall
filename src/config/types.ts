@@ -104,7 +104,7 @@ export const DEFAULT_MINIMAL_TOOLCALL_CONFIG: MinimalToolcallConfig = {
 	batchToolsEnabled: true,
 	// Rendering defaults — match today's behavior.
 	groupingMode: "proximity",
-	expandedBodyMaxLines: 200, // = EXPANDED_BODY_MAX_LINES * 4
+	expandedBodyMaxLines: 200,
 	spinnerIntervalMs: 80,
 	spinnerFrames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
 	showArgOnSummary: "single-only",

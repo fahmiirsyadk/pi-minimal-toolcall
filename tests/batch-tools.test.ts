@@ -3,6 +3,12 @@ import test, { after } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { registerBatchTools } from "../src/batch-tools.ts";
+import { DEFAULT_MINIMAL_TOOLCALL_CONFIG } from "../src/config/index.ts";
+import {
+	clearSessionSpinnerOptions,
+	registerToolCallSession,
+	setSessionConfig,
+} from "../src/spinner-state.ts";
 import { clearAllSpinners } from "../src/tool-overrides.ts";
 import {
 	makeContext,
@@ -173,7 +179,7 @@ test("batch: find_files collapsed shows 'N searches' (singular for 1)", () => {
 	assert.ok(!renderedText(comp).includes("1 searches"), "should be singular");
 });
 
-test("batch: tail-caps expanded output at 200 lines", () => {
+test("batch: tail-caps expanded output at default expandedBodyMaxLines (200)", () => {
 	const tools = captureBatchTools();
 	const def = tools["read_files"];
 	const output = Array.from({ length: 300 }, (_, i) => `line${i}`).join("\n");
@@ -190,4 +196,67 @@ test("batch: tail-caps expanded output at 200 lines", () => {
 	assert.ok(text.includes("line299"), "tail should include the last line");
 	assert.ok(!text.includes("line0"), "head should be truncated");
 	assert.match(text, /earlier lines not shown/);
+});
+
+test("batch: respects per-session expandedBodyMaxLines override", () => {
+	const tools = captureBatchTools();
+	const def = tools["read_files"];
+	const sessionId = "batch-cap-test-session";
+	const toolCallId = "batch-cap-test-call";
+	try {
+		setSessionConfig(sessionId, {
+			...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+			expandedBodyMaxLines: 10,
+		});
+		registerToolCallSession(toolCallId, sessionId);
+		const output = Array.from({ length: 50 }, (_, i) => `line${i}`).join("\n");
+		const comp = def.renderResult(
+			{
+				content: [{ type: "text", text: output }],
+				details: { kind: "read", results: [{ key: "x.ts", ok: true }] },
+			},
+			{ expanded: true, isPartial: false },
+			passThroughTheme,
+			makeContext({ toolCallId, state: {} }),
+		);
+		const text = renderedText(comp);
+		assert.ok(text.includes("line49"), "tail (line49) should be visible");
+		assert.ok(!text.includes("line30"), "lines 30..39 should be truncated");
+		assert.match(text, /earlier lines not shown/);
+	} finally {
+		clearSessionSpinnerOptions(sessionId);
+	}
+});
+
+test("batch: expandedBodyMaxLines=0 → empty body + footer (no slice(-0) leak)", () => {
+	const tools = captureBatchTools();
+	const def = tools["read_files"];
+	const sessionId = "batch-cap-zero-session";
+	const toolCallId = "batch-cap-zero-call";
+	try {
+		setSessionConfig(sessionId, {
+			...DEFAULT_MINIMAL_TOOLCALL_CONFIG,
+			expandedBodyMaxLines: 0,
+		});
+		registerToolCallSession(toolCallId, sessionId);
+		const output = Array.from({ length: 10 }, (_, i) => `line${i}`).join("\n");
+		const comp = def.renderResult(
+			{
+				content: [{ type: "text", text: output }],
+				details: { kind: "read", results: [{ key: "x.ts", ok: true }] },
+			},
+			{ expanded: true, isPartial: false },
+			passThroughTheme,
+			makeContext({ toolCallId, state: {} }),
+		);
+		const text = renderedText(comp);
+		// `slice(-0)` would have leaked all 10 body lines; assert none
+		// render and the footer notes the truncation. The footer count
+		// includes the per-item ✓/✗ rows, so just check the pattern.
+		assert.ok(!text.includes("line0"), `expected no body lines in:\n${text}`);
+		assert.ok(!text.includes("line9"), `expected no body lines in:\n${text}`);
+		assert.match(text, /earlier lines not shown/);
+	} finally {
+		clearSessionSpinnerOptions(sessionId);
+	}
 });

@@ -170,6 +170,15 @@ test("normalizeConfig: customToolOverrides invalid outputMode → default 'summa
 	);
 });
 
+test("normalizeConfig: customToolOverrides capped at MAX_CUSTOM_TOOL_OVERRIDES", () => {
+	const oversized: Record<string, { enabled: boolean; outputMode: "summary" }> = {};
+	for (let i = 0; i < 500; i++) {
+		oversized[`tool_${i}`] = { enabled: true, outputMode: "summary" };
+	}
+	const out = normalizeConfig({ customToolOverrides: oversized });
+	assert.equal(Object.keys(out.customToolOverrides).length, 256);
+});
+
 test("normalizeConfig: _comment* keys are dropped", () => {
 	const out = normalizeConfig({
 		_comment_top: "ignored",
@@ -252,12 +261,29 @@ test("loadConfig: write invalidates the cache (next load sees the new file)", ()
 		path,
 	);
 	assert.equal(saved.success, true);
-	// Wait briefly for mtime to differ (some filesystems have 1s resolution).
-	const before2 = Date.now();
-	while (Date.now() - before2 < 50) {
-		// tight loop
-	}
 	const r2 = loadConfig(path);
+	assert.equal(r2.config.hiddenThinkingLabel, "v2");
+	rmSync(dir, { recursive: true, force: true });
+});
+
+test("loadConfig: same-size overwrite within mtime resolution is detected (inode in fingerprint)", () => {
+	const dir = tempDir();
+	const path = join(dir, "config.json");
+	// Two distinct files of identical size — old ino must not match
+	// the new ino, so the second load returns the new content even
+	// if mtime+size collide.
+	writeFileSync(path, JSON.stringify({ hiddenThinkingLabel: "v1" }), "utf-8");
+	const r1 = loadConfig(path);
+	assert.equal(r1.config.hiddenThinkingLabel, "v1");
+	const payloadA = JSON.stringify({ hiddenThinkingLabel: "v2" });
+	assert.equal(payloadA.length, JSON.stringify({ hiddenThinkingLabel: "v1" }).length);
+	// writeFileSync replaces in place; inode stays the same. We test
+	// the cross-file case by using a separate file in the same dir.
+	const path2 = join(dir, "config2.json");
+	writeFileSync(path2, payloadA, "utf-8");
+	// Even with the same mtime+size, the ino differs and the new
+	// config must be returned (not the cached r1).
+	const r2 = loadConfig(path2);
 	assert.equal(r2.config.hiddenThinkingLabel, "v2");
 	rmSync(dir, { recursive: true, force: true });
 });

@@ -1,10 +1,15 @@
+// NOTE: circular import with `./tool-overrides.js` (this file imports
+// `argSummaryFor` / `extractOutput` from there, and that file imports
+// `BODY_PREFIX` / `CurrentGroup` / `formatDiffSuffix` /
+// `GroupingSession` / `LEFT_PADDING` / `renderGroupTitleCore` from
+// here). All uses are inside function bodies, so the cycle is safe
+// under ESM. Keep it that way — a top-level use would crash at module
+// load.
+
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
-import {
-	argSummaryFor,
-	extractOutput,
-	friendlyLabel,
-} from "./tool-overrides.js";
+import { argSummaryFor, extractOutput } from "./tool-overrides.js";
+import { friendlyLabel, nounFor } from "./tool-display.js";
 
 /**
  * Net diff line counts for an edit/write entry. Aggregated across a
@@ -379,34 +384,7 @@ export const LEFT_PADDING = " ";
  * sub-block. */
 export const BODY_PREFIX = " ";
 
-export function nounFor(toolName: string, count: number): string {
-	const singular: Record<string, string> = {
-		bash: "command",
-		read: "file",
-		read_files: "file",
-		edit: "file",
-		edit_files: "file",
-		write: "file",
-		ls: "dir",
-		grep: "search",
-		grep_files: "search",
-		find: "search",
-		find_files: "search",
-	};
-	const plural: Record<string, string> = {
-		bash: "commands",
-		read: "files",
-		read_files: "files",
-		edit: "files",
-		edit_files: "files",
-		write: "files",
-		ls: "dirs",
-		grep: "searches",
-		grep_files: "searches",
-		find: "searches",
-		find_files: "searches",
-	};
-	return count === 1
-		? (singular[toolName] ?? "item")
-		: (plural[toolName] ?? "items");
-}
+// `nounFor` and `friendlyLabel` live in `./tool-display.js` as a single
+// source of truth. They are re-exported below for backward
+// compatibility with any external importer of this module.
+export { friendlyLabel, nounFor } from "./tool-display.js";
